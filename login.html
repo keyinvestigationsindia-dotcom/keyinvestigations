@@ -4,167 +4,200 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Customer Login – KEY Investigations</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: { DEFAULT: '#0a0f1e', 800: '#0f1729' },
+            gold: { DEFAULT: '#c9a84c', light: '#e2c17a' }
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'], display: ['Playfair Display', 'serif'] }
+        }
+      }
+    }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
   <style>
-    body { background: var(--navy); min-height: 100vh; display: flex; flex-direction: column; }
-    .auth-wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 24px;
-    }
-    .auth-box {
-      background: var(--white);
-      border-radius: 16px;
-      padding: 48px 40px;
-      width: 100%;
-      max-width: 420px;
-      box-shadow: var(--shadow-dark);
-    }
-    .auth-logo { text-align: center; margin-bottom: 32px; }
-    .auth-logo .logo-key { font-size: 1.6rem; }
-    .auth-logo p { color: var(--text-light); font-size: 13px; margin-top: 6px; }
-    .auth-tabs {
-      display: flex;
-      background: var(--off-white);
-      border-radius: 8px;
-      padding: 4px;
-      margin-bottom: 28px;
-    }
-    .auth-tab {
-      flex: 1;
-      padding: 10px;
-      text-align: center;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-light);
-      cursor: pointer;
-      border-radius: 6px;
-      transition: all var(--transition);
-      border: none;
-      background: none;
-    }
-    .auth-tab.active { background: var(--white); color: var(--navy); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    .auth-panel { display: none; }
-    .auth-panel.active { display: block; }
-    .auth-box h2 { font-size: 1.4rem; margin-bottom: 6px; }
-    .auth-box .sub { color: var(--text-light); font-size: 13px; margin-bottom: 24px; }
-    .alert {
-      padding: 12px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      margin-bottom: 16px;
-      display: none;
-    }
-    .alert.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-    .alert.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-    .back-home {
-      display: block;
-      text-align: center;
-      margin-top: 24px;
-      color: rgba(255,255,255,0.4);
-      text-decoration: none;
-      font-size: 13px;
-      transition: color var(--transition);
-    }
-    .back-home:hover { color: var(--gold); }
-    .forgot { text-align: right; margin-top: -12px; margin-bottom: 16px; }
-    .forgot a { font-size: 12px; color: var(--text-light); text-decoration: none; }
-    .forgot a:hover { color: var(--gold); }
-    .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--text-light); font-size: 12px; }
-    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    html { font-family: 'Inter', system-ui, sans-serif; }
+    .font-display { font-family: 'Playfair Display', Georgia, serif; }
+    .hero-bg { background: linear-gradient(135deg, #0a0f1e 0%, #0f1f3d 50%, #1a1040 100%); }
+    .grid-overlay { background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 40px 40px; }
   </style>
 </head>
-<body>
+<body class="hero-bg min-h-screen flex flex-col">
+  <div class="grid-overlay fixed inset-0 pointer-events-none"></div>
 
-  <div class="auth-wrap">
-    <div>
-      <div class="auth-box">
-        <div class="auth-logo">
-          <a href="index.html" class="logo">
-            <span class="logo-key">KEY</span><span class="logo-inv" style="color:var(--navy)">Investigations</span>
-          </a>
-          <p>Customer Portal</p>
+  <!-- Header -->
+  <div class="relative px-6 py-5">
+    <a href="index.html" class="flex items-center gap-1 w-fit">
+      <span class="font-display text-xl font-bold text-gold">KEY</span>
+      <span class="text-white font-medium">Investigations</span>
+    </a>
+  </div>
+
+  <!-- Auth box -->
+  <div class="relative flex-1 flex items-center justify-center px-6 py-10">
+    <div class="w-full max-w-md">
+      <div class="bg-white/[0.05] backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
+
+        <div class="text-center mb-8">
+          <div class="inline-flex items-center justify-center w-12 h-12 bg-gold/10 border border-gold/20 rounded-xl mb-4 text-xl">🔐</div>
+          <h1 class="font-display text-2xl font-bold text-white mb-1">Customer Portal</h1>
+          <p class="text-white/40 text-sm">Sign in to track your investigation cases</p>
         </div>
 
-        <div class="auth-tabs">
-          <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
-          <button class="auth-tab" onclick="switchTab('signup')">Register</button>
+        <!-- Tabs -->
+        <div class="flex bg-white/5 rounded-xl p-1 mb-7">
+          <button onclick="switchTab('login')" id="tab-login" class="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all bg-white text-navy">Sign In</button>
+          <button onclick="switchTab('signup')" id="tab-signup" class="flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all text-white/50 hover:text-white">Register</button>
         </div>
 
-        <!-- LOGIN -->
-        <div class="auth-panel active" id="panel-login">
-          <h2>Welcome back</h2>
-          <p class="sub">Sign in to view your cases and investigation status.</p>
-          <div class="alert error" id="login-error"></div>
-          <div class="alert success" id="login-success"></div>
-          <form id="loginForm">
-            <div class="form-group">
-              <label for="login-email">Email Address</label>
-              <input type="email" id="login-email" placeholder="your@email.com" required />
+        <!-- Alerts -->
+        <div id="alert-box" class="hidden mb-5 px-4 py-3 rounded-xl text-sm font-medium"></div>
+
+        <!-- LOGIN PANEL -->
+        <div id="panel-login">
+          <form id="loginForm" class="space-y-4">
+            <div>
+              <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Email Address</label>
+              <input type="email" id="login-email" required placeholder="your@email.com"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
             </div>
-            <div class="form-group">
-              <label for="login-password">Password</label>
-              <input type="password" id="login-password" placeholder="••••••••" required />
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-white/50 text-xs font-bold uppercase tracking-widest">Password</label>
+                <button type="button" onclick="switchTab('reset')" class="text-white/30 hover:text-gold text-xs transition-colors">Forgot?</button>
+              </div>
+              <input type="password" id="login-password" required placeholder="••••••••"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
             </div>
-            <div class="forgot"><a href="#" onclick="switchTab('reset')">Forgot password?</a></div>
-            <button type="submit" class="btn btn-primary full-width" id="login-btn">Sign In</button>
+            <button type="submit" id="login-btn" class="w-full bg-gold hover:bg-gold-light text-navy font-bold py-3.5 rounded-xl transition-all hover:-translate-y-0.5 mt-2">
+              Sign In
+            </button>
           </form>
         </div>
 
-        <!-- SIGNUP -->
-        <div class="auth-panel" id="panel-signup">
-          <h2>Create account</h2>
-          <p class="sub">Register to track your investigation cases online.</p>
-          <div class="alert error" id="signup-error"></div>
-          <div class="alert success" id="signup-success"></div>
-          <form id="signupForm">
-            <div class="form-group">
-              <label for="signup-name">Full Name</label>
-              <input type="text" id="signup-name" placeholder="Your full name" required />
+        <!-- SIGNUP PANEL -->
+        <div id="panel-signup" class="hidden">
+          <form id="signupForm" class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Full Name</label>
+                <input type="text" id="signup-name" required placeholder="Your name"
+                  class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
+              </div>
+              <div>
+                <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Company</label>
+                <input type="text" id="signup-company" placeholder="Insurer name"
+                  class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
+              </div>
             </div>
-            <div class="form-group">
-              <label for="signup-company">Company / Organisation</label>
-              <input type="text" id="signup-company" placeholder="Insurance company name" />
+            <div>
+              <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Email Address</label>
+              <input type="email" id="signup-email" required placeholder="your@email.com"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
             </div>
-            <div class="form-group">
-              <label for="signup-email">Email Address</label>
-              <input type="email" id="signup-email" placeholder="your@email.com" required />
+            <div>
+              <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Password</label>
+              <input type="password" id="signup-password" required placeholder="Min. 8 characters" minlength="8"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
             </div>
-            <div class="form-group">
-              <label for="signup-password">Password</label>
-              <input type="password" id="signup-password" placeholder="Min. 8 characters" required minlength="8" />
-            </div>
-            <button type="submit" class="btn btn-primary full-width" id="signup-btn">Create Account</button>
+            <button type="submit" id="signup-btn" class="w-full bg-gold hover:bg-gold-light text-navy font-bold py-3.5 rounded-xl transition-all hover:-translate-y-0.5 mt-2">
+              Create Account
+            </button>
           </form>
         </div>
 
-        <!-- RESET -->
-        <div class="auth-panel" id="panel-reset">
-          <h2>Reset password</h2>
-          <p class="sub">Enter your email and we'll send a reset link.</p>
-          <div class="alert error" id="reset-error"></div>
-          <div class="alert success" id="reset-success"></div>
-          <form id="resetForm">
-            <div class="form-group">
-              <label for="reset-email">Email Address</label>
-              <input type="email" id="reset-email" placeholder="your@email.com" required />
+        <!-- RESET PANEL -->
+        <div id="panel-reset" class="hidden">
+          <p class="text-white/50 text-sm mb-5">Enter your email and we'll send a reset link.</p>
+          <form id="resetForm" class="space-y-4">
+            <div>
+              <label class="text-white/50 text-xs font-bold uppercase tracking-widest block mb-2">Email Address</label>
+              <input type="email" id="reset-email" required placeholder="your@email.com"
+                class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 text-sm focus:outline-none focus:border-gold/60 transition-colors" />
             </div>
-            <button type="submit" class="btn btn-primary full-width" id="reset-btn">Send Reset Link</button>
-            <div style="text-align:center;margin-top:16px">
-              <a href="#" onclick="switchTab('login')" style="font-size:13px;color:var(--text-light);text-decoration:none">← Back to Sign In</a>
-            </div>
+            <button type="submit" class="w-full bg-gold hover:bg-gold-light text-navy font-bold py-3.5 rounded-xl transition-all mt-2">Send Reset Link</button>
+            <button type="button" onclick="switchTab('login')" class="w-full text-white/30 hover:text-white text-sm transition-colors">← Back to Sign In</button>
           </form>
         </div>
+
       </div>
-
-      <a href="index.html" class="back-home">← Back to keyinvestigations.in</a>
+      <a href="index.html" class="block text-center mt-6 text-white/30 hover:text-gold text-sm transition-colors">← Back to keyinvestigations.in</a>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/auth.js"></script>
+  <script>
+    function switchTab(tab) {
+      ['login','signup','reset'].forEach(t => {
+        document.getElementById('panel-' + t).classList.add('hidden');
+        const tabEl = document.getElementById('tab-' + t);
+        if (tabEl) tabEl.className = 'flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all text-white/50 hover:text-white';
+      });
+      document.getElementById('panel-' + tab).classList.remove('hidden');
+      const activeTab = document.getElementById('tab-' + tab);
+      if (activeTab) activeTab.className = 'flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all bg-white text-navy';
+      hideAlert();
+    }
+
+    function showAlert(msg, type = 'error') {
+      const el = document.getElementById('alert-box');
+      el.textContent = msg;
+      el.className = type === 'error'
+        ? 'mb-5 px-4 py-3 rounded-xl text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400'
+        : 'mb-5 px-4 py-3 rounded-xl text-sm font-medium bg-green-500/10 border border-green-500/20 text-green-400';
+    }
+    function hideAlert() { document.getElementById('alert-box').className = 'hidden mb-5 px-4 py-3 rounded-xl text-sm font-medium'; }
+
+    const SUPABASE_URL = 'https://mqsohzqbsupsathxphgd.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xc29oenFic3Vwc2F0aHhwaGdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMDc5ODIsImV4cCI6MjA5Mzg4Mzk4Mn0.uyXA4qRgDNRAWqG27gcZVO85T2SmxianHBb514t_6Xc';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Redirect if already logged in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) window.location.href = 'dashboard.html';
+    });
+
+    // Sign In
+    document.getElementById('loginForm').addEventListener('submit', async e => {
+      e.preventDefault(); hideAlert();
+      const btn = document.getElementById('login-btn');
+      btn.textContent = 'Signing in...'; btn.disabled = true;
+      const { error } = await supabase.auth.signInWithPassword({
+        email: document.getElementById('login-email').value,
+        password: document.getElementById('login-password').value
+      });
+      if (error) { showAlert(error.message); btn.textContent = 'Sign In'; btn.disabled = false; }
+      else window.location.href = 'dashboard.html';
+    });
+
+    // Sign Up
+    document.getElementById('signupForm').addEventListener('submit', async e => {
+      e.preventDefault(); hideAlert();
+      const btn = document.getElementById('signup-btn');
+      btn.textContent = 'Creating account...'; btn.disabled = true;
+      const { error } = await supabase.auth.signUp({
+        email: document.getElementById('signup-email').value,
+        password: document.getElementById('signup-password').value,
+        options: { data: { full_name: document.getElementById('signup-name').value, company: document.getElementById('signup-company').value } }
+      });
+      if (error) { showAlert(error.message); btn.textContent = 'Create Account'; btn.disabled = false; }
+      else showAlert('✓ Account created! Check your email to confirm your address.', 'success');
+    });
+
+    // Reset
+    document.getElementById('resetForm').addEventListener('submit', async e => {
+      e.preventDefault(); hideAlert();
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        document.getElementById('reset-email').value,
+        { redirectTo: 'https://keyinvestigations.in/dashboard.html' }
+      );
+      if (error) showAlert(error.message);
+      else showAlert('✓ Reset link sent! Check your inbox.', 'success');
+    });
+  </script>
 </body>
 </html>
