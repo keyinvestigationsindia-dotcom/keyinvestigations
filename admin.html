@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>KEY Admin – KEY Investigations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#0a0f1e'},gold:{DEFAULT:'#c9a84c',light:'#e2c17a'}}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>html{font-family:'Inter',system-ui,sans-serif}.tab-btn.active{background:#0a0f1e;color:white}</style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="header"></div>
+<main class="max-w-7xl mx-auto px-6 py-8">
+  <div class="mb-8"><h1 class="text-2xl font-bold text-navy">KEY Admin Panel</h1>
+    <p class="text-slate-400 text-sm mt-1">Full visibility across all tenants, agents, and claims</p></div>
+
+  <!-- Global Stats -->
+  <div id="gstats" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"></div>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 flex-wrap">
+    <button onclick="showTab('claims')" id="t-claims" class="tab-btn active px-5 py-2 rounded-xl text-sm font-semibold bg-navy text-white">All Claims</button>
+    <button onclick="showTab('tenants')" id="t-tenants" class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-slate-100 text-slate-600">Tenants</button>
+    <button onclick="showTab('agents')" id="t-agents" class="tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-slate-100 text-slate-600">Agents</button>
+  </div>
+
+  <!-- Claims Tab -->
+  <div id="tab-claims">
+    <div class="flex flex-wrap gap-2 mb-4" id="claimFilters"></div>
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden" id="allClaimsTable">
+      <div class="p-12 text-center text-slate-400 text-sm">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Tenants Tab -->
+  <div id="tab-tenants" class="hidden">
+    <div class="grid md:grid-cols-3 gap-5" id="tenantCards"></div>
+  </div>
+
+  <!-- Agents Tab -->
+  <div id="tab-agents" class="hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden" id="agentsTable"></div>
+  </div>
+</main>
+
+<!-- ASSIGN AGENT MODAL -->
+<div id="assignModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-navy/70 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
+    <div class="flex items-center justify-between mb-5"><h2 class="font-bold text-navy" id="assignTitle">Assign Agent</h2><button onclick="closeAssign()" class="text-slate-400">✕</button></div>
+    <div class="space-y-4">
+      <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Select Agent</label>
+        <select id="agentSelect" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold"></select></div>
+      <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Priority</label>
+        <select id="prioritySelect" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold">
+          <option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
+        </select></div>
+      <button onclick="assignAgent()" class="w-full bg-gold text-navy font-bold py-3 rounded-xl">Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- CLAIM DETAIL DRAWER -->
+<div id="drawer" class="fixed inset-0 z-40 hidden">
+  <div class="absolute inset-0 bg-navy/40" onclick="closeDrawer()"></div>
+  <div class="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white shadow-2xl overflow-y-auto">
+    <div class="sticky top-0 bg-white border-b px-6 py-5 flex items-center justify-between">
+      <h2 class="font-bold text-navy" id="drawerTitle">Claim Details</h2>
+      <button onclick="closeDrawer()" class="text-slate-400">✕</button>
+    </div>
+    <div id="drawerBody" class="p-6"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>
+let allClaims=[], allAgents=[], allTenants=[], assignClaimId=null;
+
+(async()=>{
+  const session=await getSession(); if(!session) return window.location.href='login.html';
+  const profile=await getProfile(session.user.id);
+  if(profile.system_role!=='key_admin') return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
+  document.getElementById('header').innerHTML=buildHeader(profile,'Super Admin');
+
+  // Load everything
+  const [c,a,t]=await Promise.all([
+    sb.from('claims').select('*, claim_types(label), tenants(name), profiles!claims_created_by_fkey(full_name,email), key_agents!claims_agent_id_fkey(profiles(full_name))').order('created_at',{ascending:false}),
+    sb.from('key_agents').select('*, profiles(full_name,email)'),
+    sb.from('tenants').select('*')
+  ]);
+  allClaims=c.data||[]; allAgents=a.data||[]; allTenants=t.data||[];
+  renderGStats(); renderClaimFilters(); renderClaims(allClaims); renderTenants(); renderAgents();
+})();
+
+function renderGStats(){
+  const s={total:allClaims.length,pending:0,in_progress:0,resolved:0,agents:allAgents.length};
+  allClaims.forEach(c=>{ if(c.status==='pending')s.pending++; if(c.status==='in_progress')s.in_progress++; if(c.status==='resolved')s.resolved++; });
+  document.getElementById('gstats').innerHTML=[
+    ['Total Claims',s.total,'text-navy'],['Pending',s.pending,'text-slate-500'],
+    ['In Progress',s.in_progress,'text-amber-500'],['Resolved',s.resolved,'text-green-600'],
+    ['Active Agents',s.agents,'text-gold']
+  ].map(([l,n,c])=>`<div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold ${c}">${n}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">${l}</div></div>`).join('');
+}
+
+function renderClaimFilters(){
+  const counts={'all':allClaims.length};
+  allClaims.forEach(c=>{counts[c.status]=(counts[c.status]||0)+1;});
+  document.getElementById('claimFilters').innerHTML=`<button onclick="filterClaims('all')" id="cf-all" class="cfx active px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white">All (${allClaims.length})</button>`+
+    ['pending','assigned','in_progress','qc_review','rfi_raised','resolved'].filter(s=>counts[s]).map(s=>`<button onclick="filterClaims('${s}')" id="cf-${s}" class="cfx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">${STATUS_LABELS[s]} (${counts[s]||0})</button>`).join('');
+}
+function filterClaims(s){
+  document.querySelectorAll('.cfx').forEach(b=>b.className='cfx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600');
+  document.getElementById('cf-'+s).className='cfx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white';
+  renderClaims(s==='all'?allClaims:allClaims.filter(c=>c.status===s));
+}
+
+function renderClaims(claims){
+  if(!claims.length){document.getElementById('allClaimsTable').innerHTML='<div class="p-12 text-center text-slate-400 text-sm">No claims</div>';return;}
+  document.getElementById('allClaimsTable').innerHTML=`<div class="overflow-x-auto"><table class="w-full min-w-[800px]">
+    <thead class="bg-slate-50 border-b"><tr>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Claim No.</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Tenant</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Type</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Status</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Agent</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Priority</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Date</th>
+      <th></th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-50">
+      ${claims.map(c=>`<tr class="hover:bg-slate-50 cursor-pointer">
+        <td class="px-5 py-4 font-mono text-xs font-bold text-navy" onclick="openDrawer('${c.id}')">${c.claim_number}</td>
+        <td class="px-5 py-4 text-sm text-slate-600">${c.tenants?.name||'–'}</td>
+        <td class="px-5 py-4 text-sm"><span class="flex items-center gap-1">${TYPE_ICONS[c.claim_type_id]||'📋'} ${c.claim_types?.label||c.claim_type_id}</span></td>
+        <td class="px-5 py-4">${pill(STATUS_LABELS[c.status]||c.status,STATUS_COLORS[c.status]||'')}</td>
+        <td class="px-5 py-4 text-sm text-slate-500">${c.key_agents?.profiles?.full_name||'<span class="text-red-400">Unassigned</span>'}</td>
+        <td class="px-5 py-4">${pill((c.priority||'normal').toUpperCase(),PRIORITY_PILL[c.priority]||'')}</td>
+        <td class="px-5 py-4 text-xs text-slate-400">${formatDate(c.created_at)}</td>
+        <td class="px-5 py-4"><button onclick="openAssign('${c.id}')" class="text-xs bg-gold/10 text-gold border border-gold/20 px-3 py-1.5 rounded-lg hover:bg-gold hover:text-navy transition-all font-semibold">${c.key_agents?'Reassign':'Assign'}</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderTenants(){
+  document.getElementById('tenantCards').innerHTML=allTenants.map(t=>{
+    const tClaims=allClaims.filter(c=>c.tenant_id===t.id);
+    const open=tClaims.filter(c=>!['resolved','closed'].includes(c.status)).length;
+    return `<div class="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-md transition-all">
+      <div class="font-bold text-navy mb-1">${t.name}</div>
+      <div class="text-xs text-slate-400 mb-4">${t.email||''}</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-slate-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-navy">${tClaims.length}</div><div class="text-xs text-slate-400">Total Claims</div></div>
+        <div class="bg-amber-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-amber-600">${open}</div><div class="text-xs text-slate-400">Open</div></div>
+      </div></div>`;
+  }).join('');
+}
+
+function renderAgents(){
+  document.getElementById('agentsTable').innerHTML=`<table class="w-full">
+    <thead class="bg-slate-50 border-b"><tr>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Agent</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">States</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Claim Types</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Active Cases</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Capacity</th>
+    </tr></thead>
+    <tbody class="divide-y divide-slate-50">
+      ${allAgents.map(a=>{
+        const active=allClaims.filter(c=>c.agent_id===a.id&&!['resolved','closed'].includes(c.status)).length;
+        const pct=Math.round((active/(a.max_cases||15))*100);
+        return `<tr>
+          <td class="px-5 py-4"><div class="font-semibold text-navy text-sm">${a.profiles?.full_name||'–'}</div><div class="text-xs text-slate-400">${a.profiles?.email||''}</div></td>
+          <td class="px-5 py-4 text-sm text-slate-500">${(a.states||[]).join(', ')||'All'}</td>
+          <td class="px-5 py-4 text-sm text-slate-500">${(a.claim_types||[]).join(', ')||'All'}</td>
+          <td class="px-5 py-4 font-bold ${active>=(a.max_cases||15)?'text-red-500':'text-navy'}">${active} / ${a.max_cases||15}</td>
+          <td class="px-5 py-4 w-36"><div class="bg-slate-100 rounded-full h-2"><div class="bg-gold rounded-full h-2" style="width:${Math.min(pct,100)}%"></div></div></td>
+        </tr>`;}).join('')}
+    </tbody></table>`;
+}
+
+function showTab(t){
+  ['claims','tenants','agents'].forEach(x=>{
+    document.getElementById('tab-'+x).classList.add('hidden');
+    document.getElementById('t-'+x).className='tab-btn px-5 py-2 rounded-xl text-sm font-semibold bg-slate-100 text-slate-600';
+  });
+  document.getElementById('tab-'+t).classList.remove('hidden');
+  document.getElementById('t-'+t).className='tab-btn active px-5 py-2 rounded-xl text-sm font-semibold bg-navy text-white';
+}
+
+// ASSIGN
+function openAssign(id){
+  assignClaimId=id;
+  const c=allClaims.find(x=>x.id===id);
+  document.getElementById('assignTitle').textContent='Assign Agent – '+c?.claim_number;
+  document.getElementById('agentSelect').innerHTML=allAgents.map(a=>{
+    const active=allClaims.filter(c=>c.agent_id===a.id&&!['resolved','closed'].includes(c.status)).length;
+    return `<option value="${a.id}">${a.profiles?.full_name} (${active}/${a.max_cases||15} cases)</option>`;
+  }).join('');
+  if(c?.agent_id) document.getElementById('agentSelect').value=c.agent_id;
+  if(c?.priority) document.getElementById('prioritySelect').value=c.priority;
+  document.getElementById('assignModal').classList.remove('hidden'); document.getElementById('assignModal').classList.add('flex');
+}
+function closeAssign(){ document.getElementById('assignModal').classList.add('hidden'); document.getElementById('assignModal').classList.remove('flex'); }
+async function assignAgent(){
+  const agentId=document.getElementById('agentSelect').value;
+  const priority=document.getElementById('prioritySelect').value;
+  const {error}=await sb.from('claims').update({agent_id:agentId,priority,status:'assigned'}).eq('id',assignClaimId);
+  if(error){alert(error.message);return;}
+  closeAssign();
+  // Refresh
+  const {data}=await sb.from('claims').select('*, claim_types(label), tenants(name), profiles!claims_created_by_fkey(full_name,email), key_agents!claims_agent_id_fkey(profiles(full_name))').order('created_at',{ascending:false});
+  allClaims=data||[]; renderGStats(); renderClaimFilters(); renderClaims(allClaims); renderAgents();
+}
+
+// DRAWER
+function openDrawer(id){
+  const c=allClaims.find(x=>x.id===id); if(!c) return;
+  const fd=c.form_data||{};
+  document.getElementById('drawerTitle').textContent=c.claim_number;
+  document.getElementById('drawerBody').innerHTML=`
+    <div class="flex items-center gap-3 mb-5"><span class="text-3xl">${TYPE_ICONS[c.claim_type_id]||'📋'}</span>
+      <div><div class="font-semibold text-navy">${c.claim_types?.label||c.claim_type_id}</div>
+        <div class="text-xs text-slate-400">${c.tenants?.name} · ${formatDate(c.created_at)}</div></div>
+      ${pill(STATUS_LABELS[c.status]||c.status,STATUS_COLORS[c.status]||'')}
+    </div>
+    <div class="flex gap-2 mb-5">
+      ${pill((c.priority||'normal').toUpperCase(),PRIORITY_PILL[c.priority]||'')}
+      ${c.key_agents?.profiles?.full_name?`<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700">👤 ${c.key_agents.profiles.full_name}</span>`:'<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-500">⚠ Unassigned</span>'}
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      ${Object.entries(fd).filter(([,v])=>v).map(([k,v])=>`<div class="bg-slate-50 rounded-xl p-3">
+        <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">${k.replace(/_/g,' ')}</div>
+        <div class="text-sm font-medium text-navy">${v}</div></div>`).join('')}
+    </div>
+    <button onclick="openAssign('${c.id}')" class="w-full mt-5 bg-gold text-navy font-bold py-3 rounded-xl text-sm">${c.agent_id?'Reassign Agent':'Assign Agent'}</button>`;
+  document.getElementById('drawer').classList.remove('hidden');
+}
+function closeDrawer(){ document.getElementById('drawer').classList.add('hidden'); }
+</script></body></html>

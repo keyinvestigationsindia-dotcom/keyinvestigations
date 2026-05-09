@@ -155,10 +155,18 @@
     const SUPABASE_URL = 'https://mqsohzqbsupsathxphgd.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xc29oenFic3Vwc2F0aHhwaGdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMDc5ODIsImV4cCI6MjA5Mzg4Mzk4Mn0.uyXA4qRgDNRAWqG27gcZVO85T2SmxianHBb514t_6Xc';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const ROLE_ROUTES = { key_admin:'admin.html', key_qc:'qc.html', key_agent:'agent.html', external:'dashboard.html' };
+
+    async function routeAfterLogin() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data: profile } = await supabase.from('profiles').select('system_role').eq('id', session.user.id).single();
+      window.location.href = ROLE_ROUTES[profile?.system_role] || 'dashboard.html';
+    }
 
     // Redirect if already logged in
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) window.location.href = 'dashboard.html';
+      if (session) routeAfterLogin();
     });
 
     // Sign In
@@ -171,11 +179,7 @@
         password: document.getElementById('login-password').value
       });
       if (error) { showAlert(error.message); btn.textContent = 'Sign In'; btn.disabled = false; }
-      else {
-        // Route based on role
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id',(await supabase.auth.getSession()).data.session.user.id).single();
-        window.location.href = profile?.role === 'agent' ? 'agent.html' : 'dashboard.html';
-      }
+      else { await routeAfterLogin(); }
     });
 
     // Sign Up

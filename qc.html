@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>QC Dashboard – KEY Investigations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#0a0f1e'},gold:{DEFAULT:'#c9a84c',light:'#e2c17a'}}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>html{font-family:'Inter',system-ui,sans-serif}</style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="header"></div>
+<main class="max-w-7xl mx-auto px-6 py-8">
+  <div class="mb-8"><h1 class="text-2xl font-bold text-navy">QC Review Queue</h1>
+    <p class="text-slate-400 text-sm mt-1">Review agent submissions, verify checklists, raise RFIs</p></div>
+
+  <div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
+
+  <div class="flex flex-wrap gap-2 mb-5">
+    <button onclick="applyF('all')" id="f-all" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white">All</button>
+    <button onclick="applyF('in_progress')" id="f-in_progress" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Agent In Progress</button>
+    <button onclick="applyF('under_review')" id="f-under_review" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Submitted for Review</button>
+    <button onclick="applyF('qc_review')" id="f-qc_review" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">QC Review</button>
+    <button onclick="applyF('rfi_raised')" id="f-rfi_raised" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">RFI Raised</button>
+  </div>
+
+  <div id="grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+    <div class="col-span-full p-12 text-center text-slate-400 text-sm">Loading...</div>
+  </div>
+</main>
+
+<!-- QC REVIEW PANEL -->
+<div id="panel" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-navy/50" onclick="closePanel()"></div>
+  <div class="absolute right-0 top-0 bottom-0 w-full max-w-xl bg-white shadow-2xl overflow-y-auto flex flex-col">
+    <div class="sticky top-0 bg-white border-b px-6 py-5 flex items-center justify-between">
+      <div><h2 class="font-bold text-navy" id="panelTitle">QC Review</h2>
+        <p class="text-xs text-slate-400 mt-0.5" id="panelSub"></p></div>
+      <button onclick="closePanel()" class="text-slate-400">✕</button>
+    </div>
+    <div class="p-6 flex-1 space-y-6">
+      <!-- Claim Summary -->
+      <div id="claimSummary"></div>
+      <!-- Checklist -->
+      <div>
+        <h3 class="font-semibold text-navy mb-3 flex items-center gap-2">📋 QC Checklist</h3>
+        <div id="checklist" class="space-y-2.5"></div>
+      </div>
+      <!-- Existing RFIs -->
+      <div id="rfisSection">
+        <h3 class="font-semibold text-navy mb-3 flex items-center gap-2">❓ RFIs</h3>
+        <div id="rfisList"></div>
+      </div>
+      <!-- QC Notes -->
+      <div>
+        <h3 class="font-semibold text-navy mb-2">📝 QC Notes</h3>
+        <textarea id="qcNotes" rows="3" placeholder="Internal QC notes..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold resize-none"></textarea>
+      </div>
+      <!-- Raise RFI -->
+      <div class="bg-amber-50 border border-amber-100 rounded-xl p-4">
+        <h3 class="font-semibold text-amber-700 mb-2 text-sm">🔁 Raise RFI to Agent</h3>
+        <textarea id="rfiQuestion" rows="2" placeholder="What additional information do you need?" class="w-full border border-amber-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-400 resize-none mb-2"></textarea>
+        <button onclick="raiseRFI()" class="bg-amber-500 text-white font-bold px-4 py-2 rounded-lg text-sm">Raise RFI</button>
+      </div>
+    </div>
+    <!-- Action buttons -->
+    <div class="sticky bottom-0 bg-white border-t px-6 py-4 flex gap-3">
+      <button onclick="submitQC('approved')" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl text-sm">✓ Approve</button>
+      <button onclick="submitQC('rfi_raised')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl text-sm">Send Back (RFI)</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/app.js"></script>
+<script>
+let allClaims=[], currentClaim=null, currentQC=null, currentRFIs=[], activeFilter='all';
+const CHECKLIST_ITEMS=[
+  'Policy document verified','Vehicle/subject documents verified',
+  'Incident date matches FIR/records','Location corroborated',
+  'Photographs/evidence collected','Witness statements recorded',
+  'Repair estimate / hospital bill verified','Agent visit confirmed'
+];
+
+(async()=>{
+  const session=await getSession(); if(!session) return window.location.href='login.html';
+  const profile=await getProfile(session.user.id);
+  if(!['key_qc','key_admin'].includes(profile.system_role)) return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
+  document.getElementById('header').innerHTML=buildHeader(profile);
+  await loadClaims();
+})();
+
+async function loadClaims(){
+  const {data}=await sb.from('claims')
+    .select('*, claim_types(label), tenants(name), key_agents!claims_agent_id_fkey(profiles(full_name))')
+    .in('status',['in_progress','under_review','qc_review','rfi_raised','resolved'])
+    .order('updated_at',{ascending:false});
+  allClaims=data||[]; renderStats(); renderGrid(allClaims);
+}
+
+function renderStats(){
+  const s={total:allClaims.length,review:0,rfi:0,approved:0};
+  allClaims.forEach(c=>{if(['under_review','qc_review'].includes(c.status))s.review++;if(c.status==='rfi_raised')s.rfi++;if(c.status==='resolved')s.approved++;});
+  document.getElementById('stats').innerHTML=[
+    ['Total',s.total,'text-navy'],['Needs Review',s.review,'text-indigo-600'],
+    ['RFI Open',s.rfi,'text-amber-500'],['Approved',s.approved,'text-green-600']
+  ].map(([l,n,c])=>`<div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold ${c}">${n}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">${l}</div></div>`).join('');
+}
+
+function applyF(s){
+  activeFilter=s;
+  document.querySelectorAll('.fx').forEach(b=>b.className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600');
+  document.getElementById('f-'+s).className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white';
+  renderGrid(s==='all'?allClaims:allClaims.filter(c=>c.status===s));
+}
+
+function renderGrid(claims){
+  if(!claims.length){document.getElementById('grid').innerHTML='<div class="col-span-full p-12 text-center text-slate-400 text-sm">No claims</div>';return;}
+  document.getElementById('grid').innerHTML=claims.map(c=>`
+    <div class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 hover:shadow-md cursor-pointer" onclick="openPanel('${c.id}')">
+      <div class="flex items-start justify-between">
+        <div><div class="font-mono text-xs font-bold text-slate-400">${c.claim_number}</div>
+          <div class="font-semibold text-navy mt-1 flex items-center gap-2">${TYPE_ICONS[c.claim_type_id]||'📋'} ${c.claim_types?.label||c.claim_type_id}</div></div>
+        ${pill(STATUS_LABELS[c.status]||c.status,STATUS_COLORS[c.status]||'')}
+      </div>
+      <div class="text-xs text-slate-500 space-y-1">
+        <div>🏢 ${c.tenants?.name||'–'}</div>
+        <div>👤 ${c.key_agents?.profiles?.full_name||'Unassigned'}</div>
+        <div>📍 ${c.location_city||'–'}, ${c.location_state||''}</div>
+      </div>
+      <div class="pt-2 border-t flex justify-between items-center">
+        <span class="text-xs text-slate-400">${formatDate(c.updated_at)}</span>
+        ${['under_review','qc_review'].includes(c.status)?'<span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-semibold">Needs Review →</span>':''}
+      </div>
+    </div>`).join('');
+}
+
+async function openPanel(id){
+  currentClaim=allClaims.find(x=>x.id===id); if(!currentClaim) return;
+  document.getElementById('panelTitle').textContent=currentClaim.claim_number;
+  document.getElementById('panelSub').textContent=(currentClaim.claim_types?.label||'')+' · '+(currentClaim.tenants?.name||'');
+
+  // Claim summary
+  const fd=currentClaim.form_data||{};
+  document.getElementById('claimSummary').innerHTML=`
+    <div class="bg-slate-50 rounded-xl p-4 grid grid-cols-2 gap-3">
+      ${Object.entries(fd).filter(([,v])=>v).slice(0,6).map(([k,v])=>`<div><div class="text-xs text-slate-400 uppercase tracking-wider">${k.replace(/_/g,' ')}</div><div class="text-sm font-medium text-navy">${v}</div></div>`).join('')}
+    </div>
+    ${currentClaim.agent_notes?`<div class="bg-amber-50 border border-amber-100 rounded-xl p-3 mt-3"><div class="text-xs font-bold text-amber-600 mb-1">Agent Notes</div><p class="text-sm text-amber-800">${currentClaim.agent_notes}</p></div>`:''}`;
+
+  // Load existing QC review
+  const {data:qcs}=await sb.from('qc_reviews').select('*').eq('claim_id',id).order('created_at',{ascending:false});
+  currentQC=qcs?.[0]||null;
+  const existingChecklist=currentQC?.checklist||{};
+  document.getElementById('qcNotes').value=currentQC?.notes||'';
+  document.getElementById('checklist').innerHTML=CHECKLIST_ITEMS.map((item,i)=>`
+    <label class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer border border-slate-100">
+      <input type="checkbox" id="chk-${i}" ${existingChecklist[item]?'checked':''} class="w-4 h-4 rounded accent-gold"/>
+      <span class="text-sm text-slate-700">${item}</span>
+    </label>`).join('');
+
+  // Load RFIs
+  const {data:rfis}=await sb.from('rfis').select('*, profiles!rfis_raised_by_fkey(full_name)').eq('claim_id',id).order('created_at',{ascending:false});
+  currentRFIs=rfis||[];
+  renderRFIs();
+  document.getElementById('panel').classList.remove('hidden');
+}
+function closePanel(){ document.getElementById('panel').classList.add('hidden'); currentClaim=null; }
+
+function renderRFIs(){
+  if(!currentRFIs.length){ document.getElementById('rfisList').innerHTML='<p class="text-xs text-slate-400">No RFIs raised yet</p>'; return; }
+  document.getElementById('rfisList').innerHTML=currentRFIs.map(r=>`
+    <div class="border border-slate-200 rounded-xl p-3 mb-2">
+      <div class="flex items-center gap-2 mb-1">${pill(r.status,r.status==='open'?'bg-red-50 text-red-600':r.status==='responded'?'bg-green-50 text-green-600':'bg-slate-100 text-slate-500')}
+        <span class="text-xs text-slate-400">${formatDate(r.created_at)}</span></div>
+      <div class="text-sm font-medium text-navy mb-1">${r.question}</div>
+      ${r.response?`<div class="text-xs text-slate-500 bg-green-50 rounded-lg p-2 mt-1"><span class="font-semibold">Response:</span> ${r.response}</div>`:''}
+    </div>`).join('');
+}
+
+async function raiseRFI(){
+  const q=document.getElementById('rfiQuestion').value.trim();
+  if(!q||!currentClaim) return;
+  const session=await getSession();
+  await sb.from('rfis').insert({claim_id:currentClaim.id,raised_by:session.user.id,question:q,status:'open'});
+  await sb.from('claims').update({status:'rfi_raised'}).eq('id',currentClaim.id);
+  document.getElementById('rfiQuestion').value='';
+  const {data}=await sb.from('rfis').select('*,profiles!rfis_raised_by_fkey(full_name)').eq('claim_id',currentClaim.id).order('created_at',{ascending:false});
+  currentRFIs=data||[]; renderRFIs();
+}
+
+async function submitQC(verdict){
+  if(!currentClaim) return;
+  const session=await getSession();
+  const checklist={};
+  CHECKLIST_ITEMS.forEach((item,i)=>{ checklist[item]=document.getElementById('chk-'+i)?.checked||false; });
+  const notes=document.getElementById('qcNotes').value;
+  if(currentQC){
+    await sb.from('qc_reviews').update({status:verdict,checklist,notes,reviewer_id:session.user.id}).eq('id',currentQC.id);
+  } else {
+    await sb.from('qc_reviews').insert({claim_id:currentClaim.id,reviewer_id:session.user.id,status:verdict,checklist,notes});
+  }
+  const newStatus=verdict==='approved'?'resolved':'rfi_raised';
+  await sb.from('claims').update({status:newStatus}).eq('id',currentClaim.id);
+  closePanel(); await loadClaims();
+}
+</script></body></html>

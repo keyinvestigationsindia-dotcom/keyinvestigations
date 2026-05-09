@@ -1,244 +1,192 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Agent Queue – KEY Investigations</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#0a0f1e'},gold:{DEFAULT:'#c9a84c',light:'#e2c17a'}},fontFamily:{sans:['Inter','system-ui','sans-serif']}}}}</script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-  <style>html{font-family:'Inter',system-ui,sans-serif;}</style>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Agent Queue – KEY Investigations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#0a0f1e'},gold:{DEFAULT:'#c9a84c',light:'#e2c17a'}}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>html{font-family:'Inter',system-ui,sans-serif}</style>
 </head>
 <body class="bg-slate-50 min-h-screen">
-
-<header class="bg-navy border-b border-white/10 sticky top-0 z-50">
-  <div class="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
-    <div class="flex items-center gap-4">
-      <a href="index.html" class="flex items-center gap-1">
-        <span class="text-gold font-bold text-lg" style="font-family:'Georgia',serif">KEY</span>
-        <span class="text-white font-medium text-sm">Investigations</span>
-      </a>
-      <span class="bg-gold/10 border border-gold/20 text-gold text-xs font-bold px-3 py-1 rounded-full">Agent Portal</span>
-    </div>
-    <div class="flex items-center gap-3">
-      <div id="avatarEl" class="w-8 h-8 bg-gold rounded-full flex items-center justify-center text-navy text-xs font-bold"></div>
-      <span id="userName" class="text-white/80 text-sm hidden sm:block"></span>
-      <button onclick="signOut()" class="text-white/40 hover:text-white text-xs border border-white/10 px-3 py-1.5 rounded-lg transition-colors">Sign out</button>
-    </div>
-  </div>
-</header>
-
+<div id="header"></div>
 <main class="max-w-7xl mx-auto px-6 py-8">
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-    <div>
-      <h1 class="text-2xl font-bold text-navy">My Investigation Queue</h1>
-      <p id="agentSub" class="text-slate-400 text-sm mt-0.5">Loading specialization...</p>
-    </div>
-    <div class="flex gap-2 items-center text-xs text-slate-400">
-      <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span> Active
-    </div>
+    <div><h1 class="text-2xl font-bold text-navy">My Investigation Queue</h1>
+      <p id="agentSub" class="text-slate-400 text-sm mt-0.5">Loading...</p></div>
+    <div class="flex items-center gap-2 text-xs text-slate-400"><span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>Active</div>
   </div>
-
-  <!-- Stats -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="statsRow"></div>
-
-  <!-- Filters -->
+  <div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
   <div class="flex flex-wrap gap-2 mb-5">
-    <button onclick="filterQ('all')" id="filter-all" class="filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white">All</button>
-    <button onclick="filterQ('assigned')" id="filter-assigned" class="filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">Assigned</button>
-    <button onclick="filterQ('in_progress')" id="filter-in_progress" class="filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">In Progress</button>
-    <button onclick="filterQ('under_review')" id="filter-under_review" class="filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">Under Review</button>
-    <button onclick="filterQ('resolved')" id="filter-resolved" class="filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">Resolved</button>
+    <button onclick="applyF('all')" id="f-all" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white">All</button>
+    <button onclick="applyF('assigned')" id="f-assigned" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Assigned</button>
+    <button onclick="applyF('in_progress')" id="f-in_progress" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">In Progress</button>
+    <button onclick="applyF('rfi_raised')" id="f-rfi_raised" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">RFI Open</button>
   </div>
-
-  <!-- Queue Cards -->
-  <div id="queueGrid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+  <div id="grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
     <div class="col-span-full p-12 text-center text-slate-400 text-sm">Loading your queue...</div>
   </div>
 </main>
 
-<!-- UPDATE STATUS MODAL -->
+<!-- UPDATE MODAL -->
 <div id="updateModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-navy/70 backdrop-blur-sm">
   <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-    <div class="flex items-center justify-between px-6 py-5 border-b border-slate-100">
-      <h2 class="font-bold text-navy" id="modalClaimNo">Update Claim</h2>
-      <button onclick="closeUpdate()" class="text-slate-400 hover:text-navy">✕</button>
-    </div>
-    <div class="p-6 space-y-5">
-      <div>
-        <label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Update Status</label>
-        <select id="newStatus" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-navy focus:outline-none focus:border-gold">
+    <div class="flex items-center justify-between px-6 py-5 border-b"><h2 class="font-bold text-navy" id="updateTitle">Update Claim</h2><button onclick="closeUpdate()" class="text-slate-400">✕</button></div>
+    <div class="p-6 space-y-4">
+      <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Update Status</label>
+        <select id="newStatus" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold">
           <option value="assigned">Assigned – Acknowledged</option>
           <option value="in_progress">In Progress – Investigation Started</option>
-          <option value="under_review">Under Review – Report Being Prepared</option>
-          <option value="resolved">Resolved – Investigation Complete</option>
-        </select>
+          <option value="under_review">Submit for QC Review</option>
+        </select></div>
+      <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Investigation Notes</label>
+        <textarea id="agentNotes" rows="4" placeholder="Summary of findings, evidence collected, site observations..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold resize-none"></textarea></div>
+      <!-- RFI Response (shown only if rfi_raised) -->
+      <div id="rfiResponseSection" class="hidden bg-amber-50 border border-amber-100 rounded-xl p-4">
+        <div class="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">Respond to RFI</div>
+        <div id="pendingRFI" class="text-sm text-amber-800 mb-2"></div>
+        <textarea id="rfiResponse" rows="2" placeholder="Your response to QC's question..." class="w-full border border-amber-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none resize-none"></textarea>
       </div>
-      <div>
-        <label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Notes (visible to client)</label>
-        <textarea id="agentNotes" rows="4" placeholder="Add investigation notes, findings, or updates for the client..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-navy focus:outline-none focus:border-gold resize-none"></textarea>
-      </div>
-      <button onclick="submitUpdate()" class="w-full bg-gold hover:bg-gold-light text-navy font-bold py-3 rounded-xl transition-all">Update Claim</button>
+      <button onclick="submitUpdate()" class="w-full bg-gold text-navy font-bold py-3 rounded-xl">Update Claim</button>
     </div>
   </div>
 </div>
 
-<!-- CLAIM DETAIL PANEL -->
-<div id="detailPanel" class="fixed inset-0 z-40 hidden">
-  <div class="absolute inset-0 bg-navy/40" onclick="closeDetail()"></div>
+<!-- DETAIL DRAWER -->
+<div id="drawer" class="fixed inset-0 z-40 hidden">
+  <div class="absolute inset-0 bg-navy/40" onclick="closeDrawer()"></div>
   <div class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl overflow-y-auto">
-    <div class="flex items-center justify-between px-6 py-5 border-b border-slate-100 sticky top-0 bg-white">
-      <h2 class="font-bold text-navy" id="detailClaimNo">Claim Details</h2>
-      <button onclick="closeDetail()" class="text-slate-400 hover:text-navy">✕</button>
+    <div class="sticky top-0 bg-white border-b px-6 py-5 flex items-center justify-between">
+      <h2 class="font-bold text-navy" id="drawerTitle">Claim Details</h2>
+      <button onclick="closeDrawer()" class="text-slate-400">✕</button>
     </div>
-    <div id="detailContent" class="p-6"></div>
+    <div id="drawerBody" class="p-6"></div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/app.js"></script>
 <script>
-let allClaims = [], updateClaimId = null;
-const STATUS_COLORS = {pending:'bg-slate-100 text-slate-600',assigned:'bg-blue-50 text-blue-700',in_progress:'bg-amber-50 text-amber-700',under_review:'bg-purple-50 text-purple-700',resolved:'bg-green-50 text-green-700',closed:'bg-slate-50 text-slate-400'};
-const STATUS_LABELS = {pending:'Pending',assigned:'Assigned',in_progress:'In Progress',under_review:'Under Review',resolved:'Resolved',closed:'Closed'};
-const PRIORITY_PILL = {low:'bg-slate-100 text-slate-500',normal:'bg-blue-50 text-blue-600',high:'bg-amber-50 text-amber-600',urgent:'bg-red-50 text-red-600'};
-const TYPE_ICONS = {motor_od:'🚗',motor_theft:'🔓',health:'🏥',mact:'⚖️',tp:'🤝',non_motor:'🏢'};
+let allClaims=[], updateClaimId=null, pendingRFIs=[];
 
-(async () => {
-  const session = await getSession();
-  if (!session) return window.location.href = 'login.html';
-  const profile = await getProfile(session.user.id);
-  if (!profile) return window.location.href = 'login.html';
-  if (profile.role === 'client') return window.location.href = 'dashboard.html';
-  if (profile.role === 'admin') return window.location.href = 'admin.html';
-
-  document.getElementById('avatarEl').textContent = avatar(profile.full_name);
-  document.getElementById('userName').textContent = profile.full_name || session.user.email;
-
-  // Get agent specialization
-  const { data: agentData } = await sb.from('agents').select('*').eq('id', session.user.id).single();
-  if (agentData) {
-    const states = agentData.states?.join(', ') || 'All states';
-    const types = agentData.claim_types?.join(', ') || 'All types';
-    document.getElementById('agentSub').textContent = `Coverage: ${states} · Types: ${types}`;
+(async()=>{
+  const session=await getSession(); if(!session) return window.location.href='login.html';
+  const profile=await getProfile(session.user.id);
+  if(profile.system_role!=='key_agent') return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
+  document.getElementById('header').innerHTML=buildHeader(profile,'Agent Portal');
+  const {data:agentData}=await sb.from('key_agents').select('*').eq('id',session.user.id).single();
+  if(agentData){
+    const states=(agentData.states||[]).join(', ')||'All states';
+    const types=(agentData.claim_types||[]).join(', ')||'All types';
+    document.getElementById('agentSub').textContent=`Coverage: ${states} · Specialization: ${types}`;
   }
-
-  await loadQueue();
+  await loadQueue(session.user.id);
 })();
 
-async function loadQueue() {
-  const session = await getSession();
-  const { data } = await sb.from('claims')
-    .select('*, claim_types(label), companies(name)')
-    .eq('agent_id', session.user.id)
-    .order('created_at', { ascending: false });
-  allClaims = data || [];
-  renderStats();
-  renderQueue(allClaims);
+async function loadQueue(uid){
+  const {data}=await sb.from('claims')
+    .select('*, claim_types(label), tenants(name)')
+    .eq('agent_id',uid).order('created_at',{ascending:false});
+  allClaims=data||[]; renderStats(); renderGrid(allClaims);
 }
 
-function renderStats() {
-  const c = allClaims.length, ip = allClaims.filter(x=>x.status==='in_progress').length,
-        ur = allClaims.filter(x=>x.status==='under_review').length, r = allClaims.filter(x=>x.status==='resolved').length;
-  document.getElementById('statsRow').innerHTML = `
-    <div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold text-navy">${c}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Total</div></div>
-    <div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold text-amber-500">${ip}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">In Progress</div></div>
-    <div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold text-purple-500">${ur}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Under Review</div></div>
-    <div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold text-green-600">${r}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">Resolved</div></div>`;
+function renderStats(){
+  const s={total:allClaims.length,assigned:0,in_progress:0,rfi:0};
+  allClaims.forEach(c=>{if(c.status==='assigned')s.assigned++;if(c.status==='in_progress')s.in_progress++;if(c.status==='rfi_raised')s.rfi++;});
+  document.getElementById('stats').innerHTML=[
+    ['Total',s.total,'text-navy'],['Assigned',s.assigned,'text-blue-600'],
+    ['In Progress',s.in_progress,'text-amber-500'],['RFI Open',s.rfi,'text-red-500']
+  ].map(([l,n,c])=>`<div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold ${c}">${n}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">${l}</div></div>`).join('');
 }
 
-function renderQueue(claims) {
-  if (!claims.length) {
-    document.getElementById('queueGrid').innerHTML = '<div class="col-span-full p-16 text-center text-slate-400 text-sm">No cases in your queue</div>';
-    return;
-  }
-  document.getElementById('queueGrid').innerHTML = claims.map(c => `
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 hover:shadow-md transition-all flex flex-col gap-4">
+function applyF(s){
+  document.querySelectorAll('.fx').forEach(b=>b.className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600');
+  document.getElementById('f-'+s).className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white';
+  renderGrid(s==='all'?allClaims:allClaims.filter(c=>c.status===s));
+}
+
+function renderGrid(claims){
+  if(!claims.length){document.getElementById('grid').innerHTML='<div class="col-span-full p-16 text-center text-slate-400 text-sm">No cases in your queue</div>';return;}
+  document.getElementById('grid').innerHTML=claims.map(c=>`
+    <div class="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 hover:shadow-md">
       <div class="flex items-start justify-between">
-        <div>
-          <div class="font-mono text-xs font-bold text-slate-400">${c.claim_number}</div>
-          <div class="font-semibold text-navy mt-1 flex items-center gap-2">
-            <span>${TYPE_ICONS[c.claim_type_id]||'📋'}</span>
-            ${c.claim_types?.label || c.claim_type_id}
-          </div>
-        </div>
-        <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${PRIORITY_PILL[c.priority]}">${c.priority?.toUpperCase()}</span>
+        <div><div class="font-mono text-xs font-bold text-slate-400">${c.claim_number}</div>
+          <div class="font-semibold text-navy mt-1 flex items-center gap-2">${TYPE_ICONS[c.claim_type_id]||'📋'} ${c.claim_types?.label||c.claim_type_id}</div></div>
+        ${pill((c.priority||'normal').toUpperCase(),PRIORITY_PILL[c.priority]||'')}
       </div>
-      <div class="space-y-1.5 text-xs text-slate-500">
-        <div class="flex items-center gap-2"><span>🏢</span>${c.companies?.name || 'Unknown client'}</div>
-        <div class="flex items-center gap-2"><span>📍</span>${c.location_city||'–'}, ${c.location_state||''}</div>
-        <div class="flex items-center gap-2"><span>📅</span>${formatDate(c.created_at)}</div>
+      <div class="text-xs text-slate-500 space-y-1">
+        <div>🏢 ${c.tenants?.name||'–'}</div>
+        <div>📍 ${c.location_city||'–'}, ${c.location_state||''}</div>
+        <div>📅 ${formatDate(c.created_at)}</div>
       </div>
+      ${c.status==='rfi_raised'?`<div class="bg-red-50 border border-red-100 rounded-lg p-2 text-xs text-red-600 font-semibold">⚠ RFI raised by QC — response needed</div>`:''}
       <div class="flex items-center justify-between pt-2 border-t border-slate-50">
-        <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[c.status]}">${STATUS_LABELS[c.status]}</span>
+        ${pill(STATUS_LABELS[c.status]||c.status,STATUS_COLORS[c.status]||'')}
         <div class="flex gap-2">
-          <button onclick="openDetail('${c.id}')" class="text-xs text-slate-400 hover:text-navy border border-slate-200 px-3 py-1.5 rounded-lg transition-colors">Details</button>
-          ${c.status !== 'resolved' && c.status !== 'closed' ? `<button onclick="openUpdate('${c.id}')" class="text-xs bg-gold/10 text-gold hover:bg-gold hover:text-navy border border-gold/20 px-3 py-1.5 rounded-lg transition-all font-semibold">Update</button>` : ''}
+          <button onclick="openDrawer('${c.id}')" class="text-xs text-slate-400 hover:text-navy border border-slate-200 px-3 py-1.5 rounded-lg">Details</button>
+          ${!['resolved','closed'].includes(c.status)?`<button onclick="openUpdate('${c.id}')" class="text-xs bg-gold/10 text-gold border border-gold/20 px-3 py-1.5 rounded-lg hover:bg-gold hover:text-navy font-semibold">Update</button>`:''}
         </div>
       </div>
     </div>`).join('');
 }
 
-function filterQ(status) {
-  document.querySelectorAll('.filter-btn').forEach(b => b.className='filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200');
-  document.getElementById('filter-'+status).className='filter-btn px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white';
-  renderQueue(status==='all'?allClaims:allClaims.filter(c=>c.status===status));
+async function openUpdate(id){
+  updateClaimId=id;
+  const c=allClaims.find(x=>x.id===id);
+  document.getElementById('updateTitle').textContent='Update – '+c?.claim_number;
+  document.getElementById('newStatus').value=c?.status==='rfi_raised'?'in_progress':c?.status||'assigned';
+  document.getElementById('agentNotes').value=c?.agent_notes||'';
+  // Check for open RFIs
+  const {data:rfis}=await sb.from('rfis').select('*').eq('claim_id',id).eq('status','open').order('created_at',{ascending:false});
+  pendingRFIs=rfis||[];
+  if(pendingRFIs.length){
+    document.getElementById('rfiResponseSection').classList.remove('hidden');
+    document.getElementById('pendingRFI').textContent='Q: '+pendingRFIs[0].question;
+    document.getElementById('rfiResponse').value='';
+  } else {
+    document.getElementById('rfiResponseSection').classList.add('hidden');
+  }
+  document.getElementById('updateModal').classList.remove('hidden'); document.getElementById('updateModal').classList.add('flex');
 }
+function closeUpdate(){ document.getElementById('updateModal').classList.add('hidden'); document.getElementById('updateModal').classList.remove('flex'); }
 
-function openUpdate(id) {
-  updateClaimId = id;
-  const claim = allClaims.find(c=>c.id===id);
-  document.getElementById('modalClaimNo').textContent = claim?.claim_number || 'Update Claim';
-  document.getElementById('newStatus').value = claim?.status || 'assigned';
-  document.getElementById('agentNotes').value = claim?.agent_notes || '';
-  document.getElementById('updateModal').classList.remove('hidden');
-  document.getElementById('updateModal').classList.add('flex');
-}
-function closeUpdate() {
-  document.getElementById('updateModal').classList.add('hidden');
-  document.getElementById('updateModal').classList.remove('flex');
-  updateClaimId = null;
-}
-async function submitUpdate() {
-  if (!updateClaimId) return;
-  const { error } = await sb.from('claims').update({
-    status: document.getElementById('newStatus').value,
-    agent_notes: document.getElementById('agentNotes').value
-  }).eq('id', updateClaimId);
-  if (error) { alert('Error: ' + error.message); return; }
+async function submitUpdate(){
+  if(!updateClaimId) return;
+  const status=document.getElementById('newStatus').value;
+  const notes=document.getElementById('agentNotes').value;
+  await sb.from('claims').update({status,agent_notes:notes}).eq('id',updateClaimId);
+  // Respond to RFI if there's one
+  if(pendingRFIs.length){
+    const resp=document.getElementById('rfiResponse').value.trim();
+    if(resp) await sb.from('rfis').update({response:resp,status:'responded'}).eq('id',pendingRFIs[0].id);
+  }
   closeUpdate();
-  await loadQueue();
+  const session=await getSession(); await loadQueue(session.user.id);
 }
 
-function openDetail(id) {
-  const c = allClaims.find(x=>x.id===id);
-  if (!c) return;
-  const fd = c.form_data || {};
-  document.getElementById('detailClaimNo').textContent = c.claim_number;
-  document.getElementById('detailContent').innerHTML = `
-    <div class="flex items-center gap-3 mb-6">
-      <span class="text-3xl">${TYPE_ICONS[c.claim_type_id]||'📋'}</span>
-      <div>
-        <div class="font-semibold text-navy">${c.claim_types?.label||c.claim_type_id}</div>
-        <div class="text-xs text-slate-400 mt-0.5">${c.companies?.name||''} · ${formatDate(c.created_at)}</div>
-      </div>
+async function openDrawer(id){
+  const c=allClaims.find(x=>x.id===id); if(!c) return;
+  const fd=c.form_data||{};
+  const {data:rfis}=await sb.from('rfis').select('*').eq('claim_id',id).order('created_at',{ascending:false});
+  document.getElementById('drawerTitle').textContent=c.claim_number;
+  document.getElementById('drawerBody').innerHTML=`
+    <div class="flex items-center gap-3 mb-5"><span class="text-3xl">${TYPE_ICONS[c.claim_type_id]||'📋'}</span>
+      <div><div class="font-semibold text-navy">${c.claim_types?.label||c.claim_type_id}</div>
+        <div class="text-xs text-slate-400">${c.tenants?.name} · ${formatDate(c.created_at)}</div></div>
+      ${pill(STATUS_LABELS[c.status]||c.status,STATUS_COLORS[c.status]||'')}
     </div>
     <div class="grid grid-cols-2 gap-3 mb-5">
-      ${Object.entries(fd).map(([k,v])=>v?`
-        <div class="bg-slate-50 rounded-xl p-3">
-          <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">${k.replace(/_/g,' ')}</div>
-          <div class="text-sm font-medium text-navy">${v}</div>
-        </div>`:'').join('')}
+      ${Object.entries(fd).filter(([,v])=>v).map(([k,v])=>`<div class="bg-slate-50 rounded-xl p-3">
+        <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">${k.replace(/_/g,' ')}</div>
+        <div class="text-sm font-medium text-navy">${v}</div></div>`).join('')}
     </div>
-    ${c.agent_notes?`<div class="bg-amber-50 border border-amber-100 rounded-xl p-4">
-      <div class="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Your Notes</div>
-      <p class="text-sm text-amber-800">${c.agent_notes}</p>
-    </div>`:''}
+    ${rfis?.length?`<div class="mt-4"><h3 class="font-semibold text-navy text-sm mb-2">RFIs</h3>
+      ${rfis.map(r=>`<div class="border border-slate-200 rounded-xl p-3 mb-2">
+        ${pill(r.status,r.status==='open'?'bg-red-50 text-red-600':r.status==='responded'?'bg-green-50 text-green-600':'bg-slate-100 text-slate-500')}
+        <div class="text-sm font-medium text-navy mt-1 mb-1">${r.question}</div>
+        ${r.response?`<div class="text-xs text-green-700 bg-green-50 rounded-lg p-2">✓ ${r.response}</div>`:''}
+      </div>`).join('')}</div>`:''}
     <button onclick="openUpdate('${c.id}')" class="w-full mt-5 bg-gold text-navy font-bold py-3 rounded-xl text-sm">Update Status</button>`;
-  document.getElementById('detailPanel').classList.remove('hidden');
+  document.getElementById('drawer').classList.remove('hidden');
 }
-function closeDetail() {
-  document.getElementById('detailPanel').classList.add('hidden');
-}
-</script>
-</body>
-</html>
+function closeDrawer(){ document.getElementById('drawer').classList.add('hidden'); }
+</script></body></html>
