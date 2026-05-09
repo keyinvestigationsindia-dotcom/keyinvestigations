@@ -171,7 +171,11 @@
         password: document.getElementById('login-password').value
       });
       if (error) { showAlert(error.message); btn.textContent = 'Sign In'; btn.disabled = false; }
-      else window.location.href = 'dashboard.html';
+      else {
+        // Route based on role
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id',(await supabase.auth.getSession()).data.session.user.id).single();
+        window.location.href = profile?.role === 'agent' ? 'agent.html' : 'dashboard.html';
+      }
     });
 
     // Sign Up
