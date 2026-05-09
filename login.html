@@ -157,29 +157,31 @@
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const ROLE_ROUTES = { key_admin:'admin.html', key_qc:'qc.html', key_agent:'agent.html', external:'dashboard.html' };
 
-    async function routeAfterLogin() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data: profile } = await supabase.from('profiles').select('system_role').eq('id', session.user.id).single();
+    async function routeByProfile(userId) {
+      const { data: profile } = await supabase
+        .from('profiles').select('system_role').eq('id', userId).single();
       window.location.href = ROLE_ROUTES[profile?.system_role] || 'dashboard.html';
     }
 
     // Redirect if already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) routeAfterLogin();
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) await routeByProfile(session.user.id);
     });
 
-    // Sign In
+    // Sign In — use user from response directly, no second getSession() call
     document.getElementById('loginForm').addEventListener('submit', async e => {
       e.preventDefault(); hideAlert();
       const btn = document.getElementById('login-btn');
       btn.textContent = 'Signing in...'; btn.disabled = true;
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: document.getElementById('login-email').value,
         password: document.getElementById('login-password').value
       });
-      if (error) { showAlert(error.message); btn.textContent = 'Sign In'; btn.disabled = false; }
-      else { await routeAfterLogin(); }
+      if (error) {
+        showAlert(error.message); btn.textContent = 'Sign In'; btn.disabled = false;
+      } else {
+        await routeByProfile(data.user.id);
+      }
     });
 
     // Sign Up
