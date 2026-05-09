@@ -88,7 +88,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
 <script src="js/app.js"></script>
 <script>
 let allClaims=[], claimTypes=[], currentTenantId=null, workspaces=[], selectedType=null, isAdmin=false;
@@ -97,7 +97,8 @@ const STATUSES=['pending','assigned','in_progress','under_review','qc_review','r
 (async()=>{
   const session=await getSession(); if(!session) return window.location.href='login.html';
   const profile=await getProfile(session.user.id);
-  if(profile.system_role!=='external') return window.location.href=ROLE_ROUTES[profile.system_role];
+  if(!profile) return window.location.href='login.html';
+  if(profile.system_role!=='external') return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
   workspaces=await getWorkspaces(session.user.id);
   if(!workspaces.length){ document.getElementById('sub').textContent='You are not part of any workspace yet. Contact your admin.'; return; }
   currentTenantId=workspaces[0].tenant_id;

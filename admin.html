@@ -70,7 +70,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
 <script src="js/app.js"></script>
 <script>
 let allClaims=[], allAgents=[], allTenants=[], assignClaimId=null;
@@ -78,6 +78,7 @@ let allClaims=[], allAgents=[], allTenants=[], assignClaimId=null;
 (async()=>{
   const session=await getSession(); if(!session) return window.location.href='login.html';
   const profile=await getProfile(session.user.id);
+  if(!profile) return window.location.href='login.html';
   if(profile.system_role!=='key_admin') return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
   document.getElementById('header').innerHTML=buildHeader(profile,'Super Admin');
 
