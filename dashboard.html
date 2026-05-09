@@ -126,7 +126,7 @@ async function switchWorkspace(tid){
 async function loadClaims(){
   document.getElementById('sub').textContent=workspaces.find(w=>w.tenant_id===currentTenantId)?.tenants?.name+' · All claims';
   const {data}=await sb.from('claims')
-    .select('*, claim_types(label), profiles!claims_agent_id_fkey(full_name)')
+    .select('*, claim_types(label), key_agents(profiles(full_name))')
     .eq('tenant_id',currentTenantId).order('created_at',{ascending:false});
   allClaims=data||[];
   renderStats(); renderFilters(); renderTable(allClaims);
@@ -173,7 +173,7 @@ function renderTable(claims){
         <td class="px-5 py-4 text-sm"><span class="flex items-center gap-2">${TYPE_ICONS[c.claim_type_id]||'📋'} ${c.claim_types?.label||c.claim_type_id}</span></td>
         <td class="px-5 py-4 text-sm text-slate-500">${c.location_city||'–'}, ${c.location_state||''}</td>
         <td class="px-5 py-4">${pill(STATUS_LABELS[c.status]||c.status, STATUS_COLORS[c.status]||'')}</td>
-        <td class="px-5 py-4 text-sm text-slate-500">${c.profiles?.full_name||'Unassigned'}</td>
+        <td class="px-5 py-4 text-sm text-slate-500">${c.key_agents?.profiles?.full_name||'Unassigned'}</td>
         <td class="px-5 py-4 text-xs text-slate-400">${formatDate(c.created_at)}</td>
         <td class="px-5 py-4"><svg class="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></td>
       </tr>`).join('')}
