@@ -1,3 +1,5 @@
 supabase/.temp/
 *.env
 .env*
+secrets.local.json
+*.local.json
