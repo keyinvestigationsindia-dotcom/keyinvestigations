@@ -154,17 +154,18 @@
 
     const SUPABASE_URL = 'https://mqsohzqbsupsathxphgd.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xc29oenFic3Vwc2F0aHhwaGdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMDc5ODIsImV4cCI6MjA5Mzg4Mzk4Mn0.uyXA4qRgDNRAWqG27gcZVO85T2SmxianHBb514t_6Xc';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Use 'sb' — 'supabase' is already declared globally by the UMD bundle
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const ROLE_ROUTES = { key_admin:'admin.html', key_qc:'qc.html', key_agent:'agent.html', external:'dashboard.html' };
 
     async function routeByProfile(userId) {
-      const { data: profile } = await supabase
+      const { data: profile } = await sb
         .from('profiles').select('system_role').eq('id', userId).single();
       window.location.href = ROLE_ROUTES[profile?.system_role] || 'dashboard.html';
     }
 
     // Redirect if already logged in
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    sb.auth.getSession().then(async ({ data: { session } }) => {
       if (session) await routeByProfile(session.user.id);
     });
 
@@ -173,7 +174,7 @@
       e.preventDefault(); hideAlert();
       const btn = document.getElementById('login-btn');
       btn.textContent = 'Signing in...'; btn.disabled = true;
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await sb.auth.signInWithPassword({
         email: document.getElementById('login-email').value,
         password: document.getElementById('login-password').value
       });
@@ -189,7 +190,7 @@
       e.preventDefault(); hideAlert();
       const btn = document.getElementById('signup-btn');
       btn.textContent = 'Creating account...'; btn.disabled = true;
-      const { error } = await supabase.auth.signUp({
+      const { error } = await sb.auth.signUp({
         email: document.getElementById('signup-email').value,
         password: document.getElementById('signup-password').value,
         options: { data: { full_name: document.getElementById('signup-name').value, company: document.getElementById('signup-company').value } }
@@ -201,7 +202,7 @@
     // Reset
     document.getElementById('resetForm').addEventListener('submit', async e => {
       e.preventDefault(); hideAlert();
-      const { error } = await supabase.auth.resetPasswordForEmail(
+      const { error } = await sb.auth.resetPasswordForEmail(
         document.getElementById('reset-email').value,
         { redirectTo: 'https://keyinvestigations.in/dashboard.html' }
       );
