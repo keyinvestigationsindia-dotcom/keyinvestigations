@@ -66,7 +66,7 @@
 <body class="bg-white text-slate-700 antialiased">
 
   <!-- NAVBAR -->
-  <header id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+  <header id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300 nav-blur border-b border-white/10">
     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="#" class="flex items-center gap-1">
         <span class="font-display text-2xl font-bold text-gold">KEY</span>
@@ -78,7 +78,7 @@
         <a href="#locations" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Locations</a>
         <a href="#careers" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Careers</a>
         <a href="#contact" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Contact</a>
-        <a href="login.html" class="border border-gold/50 text-gold hover:bg-gold hover:text-navy px-4 py-2 rounded-lg text-sm font-semibold transition-all">Customer Login</a>
+        <a href="login.html" class="bg-gold hover:bg-gold-light text-navy px-5 py-2 rounded-lg text-sm font-bold transition-all">Customer Login</a>
       </nav>
       <button id="menuBtn" class="md:hidden text-white p-2">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -141,6 +141,22 @@
           <div class="text-white/40 text-xs uppercase tracking-widest">Major Insurers</div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- CLIENT LOGIN BANNER -->
+  <section class="bg-gold py-5">
+    <div class="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="text-navy text-xl">🔐</span>
+        <div>
+          <p class="text-navy font-bold text-sm">Existing Client?</p>
+          <p class="text-navy/70 text-xs">Log in to track your investigation cases and reports</p>
+        </div>
+      </div>
+      <a href="login.html" class="bg-navy hover:bg-navy-800 text-white font-bold px-6 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0">
+        Access Client Portal →
+      </a>
     </div>
   </section>
 
