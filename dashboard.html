@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – KEY Investigations</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    body { background: var(--off-white); }
+    .dash-header {
+      background: var(--navy);
+      padding: 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    }
+    .dash-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      max-width: 1160px;
+      margin: 0 auto;
+    }
+    .dash-user {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .dash-avatar {
+      width: 36px; height: 36px;
+      background: var(--gold);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px; color: var(--navy);
+    }
+    .dash-user-info { line-height: 1.3; }
+    .dash-user-name { color: var(--white); font-size: 14px; font-weight: 600; }
+    .dash-user-role { color: rgba(255,255,255,0.4); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    .logout-btn {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.6);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .logout-btn:hover { background: rgba(255,255,255,0.15); color: var(--white); }
+
+    .dash-main { max-width: 1160px; margin: 0 auto; padding: 40px 24px; }
+    .dash-welcome { margin-bottom: 36px; }
+    .dash-welcome h1 { font-size: 1.8rem; color: var(--navy); }
+    .dash-welcome p { color: var(--text-light); margin-top: 4px; }
+
+    .dash-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 36px;
+    }
+    .dash-stat {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 24px;
+      border: 1px solid var(--border);
+    }
+    .dash-stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); font-weight: 600; margin-bottom: 8px; }
+    .dash-stat-num { font-size: 2rem; font-family: var(--font-heading); color: var(--navy); font-weight: 700; }
+    .dash-stat-sub { font-size: 12px; color: var(--text-light); margin-top: 4px; }
+
+    .dash-section { margin-bottom: 36px; }
+    .dash-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .dash-section-header h2 { font-size: 1.1rem; color: var(--navy); }
+
+    .cases-table {
+      background: var(--white);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .cases-table table { width: 100%; border-collapse: collapse; }
+    .cases-table th {
+      background: var(--off-white);
+      padding: 12px 20px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-light);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+    }
+    .cases-table td {
+      padding: 16px 20px;
+      font-size: 14px;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+    }
+    .cases-table tr:last-child td { border-bottom: none; }
+    .cases-table tr:hover td { background: var(--off-white); }
+
+    .status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-open { background: #eff6ff; color: #2563eb; }
+    .status-in_progress { background: #fffbeb; color: #d97706; }
+    .status-resolved { background: #f0fdf4; color: #16a34a; }
+    .status-closed { background: #f8fafc; color: #94a3b8; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-light);
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .empty-state h3 { color: var(--text); margin-bottom: 8px; font-size: 1rem; }
+    .empty-state p { font-size: 14px; }
+
+    .loading { text-align: center; padding: 40px; color: var(--text-light); font-size: 14px; }
+
+    @media (max-width: 768px) {
+      .dash-stats { grid-template-columns: repeat(2, 1fr); }
+      .cases-table { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="dash-header">
+    <div class="dash-nav">
+      <a href="index.html" class="logo">
+        <span class="logo-key">KEY</span><span class="logo-inv">Investigations</span>
+      </a>
+      <div class="dash-user">
+        <div class="dash-avatar" id="avatarInitial">?</div>
+        <div class="dash-user-info">
+          <div class="dash-user-name" id="userName">Loading...</div>
+          <div class="dash-user-role">Customer</div>
+        </div>
+        <button class="logout-btn" onclick="signOut()">Sign Out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="dash-main">
+    <div class="dash-welcome">
+      <h1>Welcome back, <span id="welcomeName">there</span> 👋</h1>
+      <p>Here's an overview of your investigation cases.</p>
+    </div>
+
+    <div class="dash-stats">
+      <div class="dash-stat">
+        <div class="dash-stat-label">Total Cases</div>
+        <div class="dash-stat-num" id="stat-total">–</div>
+        <div class="dash-stat-sub">All time</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Open</div>
+        <div class="dash-stat-num" id="stat-open">–</div>
+        <div class="dash-stat-sub">Awaiting start</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">In Progress</div>
+        <div class="dash-stat-num" id="stat-progress">–</div>
+        <div class="dash-stat-sub">Active investigations</div>
+      </div>
+      <div class="dash-stat">
+        <div class="dash-stat-label">Resolved</div>
+        <div class="dash-stat-num" id="stat-resolved">–</div>
+        <div class="dash-stat-sub">Completed</div>
+      </div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-header">
+        <h2>Your Cases</h2>
+      </div>
+      <div class="cases-table" id="casesContainer">
+        <div class="loading">Loading your cases...</div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
