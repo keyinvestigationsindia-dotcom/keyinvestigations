@@ -11,18 +11,15 @@
 <div id="header"></div>
 <main class="max-w-7xl mx-auto px-6 py-8">
   <div class="mb-8"><h1 class="text-2xl font-bold text-navy">QC Review Queue</h1>
-    <p class="text-slate-400 text-sm mt-1">Review agent submissions, verify checklists, raise RFIs</p></div>
-
+    <p class="text-slate-400 text-sm mt-1">Review agent checklist submissions, approve or request revisions per item</p></div>
   <div id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"></div>
-
   <div class="flex flex-wrap gap-2 mb-5">
     <button onclick="applyF('all')" id="f-all" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white">All</button>
     <button onclick="applyF('in_progress')" id="f-in_progress" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Agent In Progress</button>
     <button onclick="applyF('under_review')" id="f-under_review" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Submitted for Review</button>
-    <button onclick="applyF('qc_review')" id="f-qc_review" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">QC Review</button>
-    <button onclick="applyF('rfi_raised')" id="f-rfi_raised" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">RFI Raised</button>
+    <button onclick="applyF('rfi_raised')" id="f-rfi_raised" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Revision Requested</button>
+    <button onclick="applyF('resolved')" id="f-resolved" class="fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Approved</button>
   </div>
-
   <div id="grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
     <div class="col-span-full p-12 text-center text-slate-400 text-sm">Loading...</div>
   </div>
@@ -31,41 +28,65 @@
 <!-- QC REVIEW PANEL -->
 <div id="panel" class="fixed inset-0 z-50 hidden">
   <div class="absolute inset-0 bg-navy/50" onclick="closePanel()"></div>
-  <div class="absolute right-0 top-0 bottom-0 w-full max-w-xl bg-white shadow-2xl overflow-y-auto flex flex-col">
-    <div class="sticky top-0 bg-white border-b px-6 py-5 flex items-center justify-between">
+  <div class="absolute right-0 top-0 bottom-0 w-full max-w-2xl bg-white shadow-2xl flex flex-col">
+    <!-- Sticky header -->
+    <div class="sticky top-0 bg-white border-b px-6 py-5 flex items-center justify-between flex-shrink-0">
       <div><h2 class="font-bold text-navy" id="panelTitle">QC Review</h2>
         <p class="text-xs text-slate-400 mt-0.5" id="panelSub"></p></div>
-      <button onclick="closePanel()" class="text-slate-400">✕</button>
+      <button onclick="closePanel()" class="text-slate-400 hover:text-navy text-lg">✕</button>
     </div>
-    <div class="p-6 flex-1 space-y-6">
-      <!-- Claim Summary -->
-      <div id="claimSummary"></div>
-      <!-- Checklist -->
-      <div>
-        <h3 class="font-semibold text-navy mb-3 flex items-center gap-2">📋 QC Checklist</h3>
-        <div id="checklist" class="space-y-2.5"></div>
-      </div>
-      <!-- Existing RFIs -->
-      <div id="rfisSection">
-        <h3 class="font-semibold text-navy mb-3 flex items-center gap-2">❓ RFIs</h3>
-        <div id="rfisList"></div>
-      </div>
-      <!-- QC Notes -->
-      <div>
-        <h3 class="font-semibold text-navy mb-2">📝 QC Notes</h3>
-        <textarea id="qcNotes" rows="3" placeholder="Internal QC notes..." class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold resize-none"></textarea>
-      </div>
-      <!-- Raise RFI -->
-      <div class="bg-amber-50 border border-amber-100 rounded-xl p-4">
-        <h3 class="font-semibold text-amber-700 mb-2 text-sm">🔁 Raise RFI to Agent</h3>
-        <textarea id="rfiQuestion" rows="2" placeholder="What additional information do you need?" class="w-full border border-amber-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-400 resize-none mb-2"></textarea>
-        <button onclick="raiseRFI()" class="bg-amber-500 text-white font-bold px-4 py-2 rounded-lg text-sm">Raise RFI</button>
+
+    <!-- Scrollable body -->
+    <div class="flex-1 overflow-y-auto">
+      <div class="p-6 space-y-6">
+        <!-- Claim Summary -->
+        <div id="claimSummary"></div>
+
+        <!-- Per-item checklist review -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-navy flex items-center gap-2">📋 Agent Checklist Review</h3>
+            <span id="subRound" class="text-xs text-slate-400"></span>
+          </div>
+          <div id="noSubmission" class="hidden bg-slate-50 rounded-xl p-4 text-sm text-slate-400 text-center">
+            Agent has not submitted the checklist yet.
+          </div>
+          <div id="checklist" class="space-y-3"></div>
+        </div>
+
+        <!-- Submission history -->
+        <div id="historySection" class="hidden">
+          <h3 class="font-semibold text-navy mb-3">🕑 Submission History</h3>
+          <div id="historyList" class="space-y-3"></div>
+        </div>
+
+        <!-- RFIs -->
+        <div>
+          <h3 class="font-semibold text-navy mb-3 flex items-center gap-2">❓ RFIs</h3>
+          <div id="rfisList"></div>
+          <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 mt-3">
+            <p class="text-xs font-bold text-amber-600 mb-2">Raise additional RFI to agent</p>
+            <textarea id="rfiQuestion" rows="2" placeholder="What additional information do you need?"
+              class="w-full border border-amber-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none resize-none mb-2"></textarea>
+            <button onclick="raiseRFI()" class="bg-amber-500 text-white font-bold px-4 py-2 rounded-lg text-sm">Raise RFI</button>
+          </div>
+        </div>
+
+        <!-- Overall QC notes -->
+        <div>
+          <h3 class="font-semibold text-navy mb-2">📝 Overall QC Notes</h3>
+          <textarea id="qcNotes" rows="3" placeholder="Internal notes for this review…"
+            class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold resize-none"></textarea>
+        </div>
       </div>
     </div>
-    <!-- Action buttons -->
-    <div class="sticky bottom-0 bg-white border-t px-6 py-4 flex gap-3">
-      <button onclick="submitQC('approved')" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl text-sm">✓ Approve</button>
-      <button onclick="submitQC('rfi_raised')" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl text-sm">Send Back (RFI)</button>
+
+    <!-- Sticky action bar -->
+    <div class="sticky bottom-0 bg-white border-t px-6 py-4 flex gap-3 flex-shrink-0">
+      <button onclick="submitQC('approved')" id="btn-approve"
+        class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl text-sm">✓ Approve All & Close</button>
+      <button onclick="submitQC('revision_needed')" id="btn-revise"
+        class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl text-sm">↩ Request Revisions</button>
     </div>
   </div>
 </div>
@@ -73,13 +94,7 @@
 <script src="js/supabase.js"></script>
 <script src="js/app.js"></script>
 <script>
-let allClaims=[], currentClaim=null, currentQC=null, currentRFIs=[], activeFilter='all';
-const CHECKLIST_ITEMS=[
-  'Policy document verified','Vehicle/subject documents verified',
-  'Incident date matches FIR/records','Location corroborated',
-  'Photographs/evidence collected','Witness statements recorded',
-  'Repair estimate / hospital bill verified','Agent visit confirmed'
-];
+let allClaims=[], currentClaim=null, currentRFIs=[], agentSubmission=null, itemVerdicts={};
 
 (async()=>{
   const session=await getSession(); if(!session) return window.location.href='login.html';
@@ -100,15 +115,18 @@ async function loadClaims(){
 
 function renderStats(){
   const s={total:allClaims.length,review:0,rfi:0,approved:0};
-  allClaims.forEach(c=>{if(['under_review','qc_review'].includes(c.status))s.review++;if(c.status==='rfi_raised')s.rfi++;if(c.status==='resolved')s.approved++;});
+  allClaims.forEach(c=>{
+    if(['under_review','qc_review'].includes(c.status))s.review++;
+    if(c.status==='rfi_raised')s.rfi++;
+    if(c.status==='resolved')s.approved++;
+  });
   document.getElementById('stats').innerHTML=[
     ['Total',s.total,'text-navy'],['Needs Review',s.review,'text-indigo-600'],
-    ['RFI Open',s.rfi,'text-amber-500'],['Approved',s.approved,'text-green-600']
+    ['Revision Sent',s.rfi,'text-red-500'],['Approved',s.approved,'text-green-600']
   ].map(([l,n,c])=>`<div class="bg-white border border-slate-200 rounded-xl p-4 text-center"><div class="text-2xl font-bold ${c}">${n}</div><div class="text-xs text-slate-400 mt-1 uppercase tracking-wider">${l}</div></div>`).join('');
 }
 
 function applyF(s){
-  activeFilter=s;
   document.querySelectorAll('.fx').forEach(b=>b.className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600');
   document.getElementById('f-'+s).className='fx px-4 py-1.5 rounded-full text-xs font-semibold bg-navy text-white';
   renderGrid(s==='all'?allClaims:allClaims.filter(c=>c.status===s));
@@ -130,51 +148,161 @@ function renderGrid(claims){
       </div>
       <div class="pt-2 border-t flex justify-between items-center">
         <span class="text-xs text-slate-400">${formatDate(c.updated_at)}</span>
-        ${['under_review','qc_review'].includes(c.status)?'<span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-semibold">Needs Review →</span>':''}
+        ${['under_review','qc_review'].includes(c.status)?'<span class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-semibold">Review →</span>':''}
       </div>
     </div>`).join('');
 }
 
+// ─── PANEL ────────────────────────────────────────────────────
 async function openPanel(id){
   currentClaim=allClaims.find(x=>x.id===id); if(!currentClaim) return;
+  itemVerdicts={}; agentSubmission=null;
   document.getElementById('panelTitle').textContent=currentClaim.claim_number;
-  document.getElementById('panelSub').textContent=(currentClaim.claim_types?.label||'')+' · '+(currentClaim.tenants?.name||'');
+  document.getElementById('panelSub').textContent=(currentClaim.claim_types?.label||'')+' · '+(currentClaim.tenants?.name||'')+' · Agent: '+(currentClaim.key_agents?.profiles?.full_name||'Unassigned');
+  document.getElementById('qcNotes').value='';
 
   // Claim summary
   const fd=currentClaim.form_data||{};
   document.getElementById('claimSummary').innerHTML=`
-    <div class="bg-slate-50 rounded-xl p-4 grid grid-cols-2 gap-3">
-      ${Object.entries(fd).filter(([,v])=>v).slice(0,6).map(([k,v])=>`<div><div class="text-xs text-slate-400 uppercase tracking-wider">${k.replace(/_/g,' ')}</div><div class="text-sm font-medium text-navy">${v}</div></div>`).join('')}
-    </div>
-    ${currentClaim.agent_notes?`<div class="bg-amber-50 border border-amber-100 rounded-xl p-3 mt-3"><div class="text-xs font-bold text-amber-600 mb-1">Agent Notes</div><p class="text-sm text-amber-800">${currentClaim.agent_notes}</p></div>`:''}`;
+    <div class="bg-slate-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
+      ${Object.entries(fd).filter(([,v])=>v).slice(0,6).map(([k,v])=>`<div>
+        <div class="text-slate-400 uppercase tracking-wider mb-0.5">${k.replace(/_/g,' ')}</div>
+        <div class="font-medium text-navy">${v}</div></div>`).join('')}
+    </div>`;
 
-  // Load existing QC review
-  const {data:qcs}=await sb.from('qc_reviews').select('*').eq('claim_id',id).order('created_at',{ascending:false});
-  currentQC=qcs?.[0]||null;
-  const existingChecklist=currentQC?.checklist||{};
-  document.getElementById('qcNotes').value=currentQC?.notes||'';
-  document.getElementById('checklist').innerHTML=CHECKLIST_ITEMS.map((item,i)=>`
-    <label class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer border border-slate-100">
-      <input type="checkbox" id="chk-${i}" ${existingChecklist[item]?'checked':''} class="w-4 h-4 rounded accent-gold"/>
-      <span class="text-sm text-slate-700">${item}</span>
-    </label>`).join('');
+  // Load all submissions + reviews in parallel
+  const [{data:subs},{data:qcrs},{data:rfis}]=await Promise.all([
+    sb.from('agent_checklist_submissions').select('*').eq('claim_id',id).order('round',{ascending:false}),
+    sb.from('qc_checklist_reviews').select('*').eq('claim_id',id).order('round',{ascending:false}),
+    sb.from('rfis').select('*').eq('claim_id',id).order('created_at',{ascending:false})
+  ]);
 
-  // Load RFIs
-  const {data:rfis}=await sb.from('rfis').select('*, profiles!rfis_raised_by_fkey(full_name)').eq('claim_id',id).order('created_at',{ascending:false});
-  currentRFIs=rfis||[];
-  renderRFIs();
+  agentSubmission=(subs||[])[0]||null;
+  const latestQCR=(qcrs||[])[0]||null;
+
+  // Pre-populate verdicts from previous QC review
+  if(latestQCR){
+    CHECKLIST.forEach(item=>{
+      const v=latestQCR.item_reviews?.[item.key];
+      if(v?.verdict) itemVerdicts[item.key]=v.verdict;
+    });
+    document.getElementById('qcNotes').value=latestQCR.overall_notes||'';
+  }
+
+  // Render checklist
+  if(!agentSubmission){
+    document.getElementById('noSubmission').classList.remove('hidden');
+    document.getElementById('checklist').innerHTML='';
+    document.getElementById('btn-approve').disabled=true;
+    document.getElementById('btn-revise').disabled=true;
+  } else {
+    document.getElementById('noSubmission').classList.add('hidden');
+    document.getElementById('btn-approve').disabled=false;
+    document.getElementById('btn-revise').disabled=false;
+    document.getElementById('subRound').textContent=`Round ${agentSubmission.round} · ${formatDate(agentSubmission.created_at)}`;
+    renderChecklist(agentSubmission, latestQCR);
+  }
+
+  // History (older submissions)
+  const olderSubs=(subs||[]).slice(1);
+  if(olderSubs.length){
+    document.getElementById('historySection').classList.remove('hidden');
+    document.getElementById('historyList').innerHTML=olderSubs.map(sub=>{
+      const qcr=(qcrs||[]).find(r=>r.submission_id===sub.id);
+      return `<div class="border border-slate-200 rounded-xl overflow-hidden text-xs">
+        <div class="bg-slate-50 px-4 py-2 flex justify-between border-b">
+          <span class="font-bold text-navy">Round ${sub.round}</span>
+          <span class="text-slate-400">${formatDate(sub.created_at)}</span>
+        </div>
+        <div class="p-3 space-y-1.5">
+          ${CHECKLIST.map(item=>{
+            const si=sub.items?.[item.key]||{};
+            const qi=qcr?.item_reviews?.[item.key]||{};
+            return `<div class="flex items-start gap-2">
+              <span class="${si.done?'text-green-500':'text-slate-300'} flex-shrink-0">${si.done?'✓':'○'}</span>
+              <span class="text-slate-600">${item.label}</span>
+              ${qi.verdict?`<span class="ml-auto font-bold ${qi.verdict==='approved'?'text-green-600':'text-red-500'}">${qi.verdict==='approved'?'✓':'↩'}</span>`:''}
+            </div>`;
+          }).join('')}
+        </div>
+        ${qcr?`<div class="border-t px-4 py-2 bg-slate-50 font-bold ${qcr.overall_verdict==='approved'?'text-green-600':'text-red-500'}">
+          ${qcr.overall_verdict==='approved'?'✓ Approved':'↩ Revisions Requested'}
+        </div>`:''}
+      </div>`;
+    }).join('');
+  } else {
+    document.getElementById('historySection').classList.add('hidden');
+  }
+
+  currentRFIs=rfis||[]; renderRFIs();
   document.getElementById('panel').classList.remove('hidden');
 }
-function closePanel(){ document.getElementById('panel').classList.add('hidden'); currentClaim=null; }
+function closePanel(){document.getElementById('panel').classList.add('hidden'); currentClaim=null;}
+
+function renderChecklist(sub, prevQCR){
+  document.getElementById('checklist').innerHTML=CHECKLIST.map(item=>{
+    const si=sub.items?.[item.key]||{};
+    const prevVerdict=prevQCR?.item_reviews?.[item.key]||{};
+    const curVerdict=itemVerdicts[item.key]||prevVerdict.verdict||'';
+    const isApproved=curVerdict==='approved';
+    const isRevision=curVerdict==='revision_needed';
+
+    return `<div class="border rounded-xl overflow-hidden ${isApproved?'border-green-200':isRevision?'border-red-200':'border-slate-200'}">
+      <!-- Agent submission -->
+      <div class="p-4 ${isApproved?'bg-green-50/30':isRevision?'bg-red-50/30':'bg-white'}">
+        <div class="flex items-start gap-3">
+          <span class="text-lg flex-shrink-0 mt-0.5">${si.done?'✅':'⬜'}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-navy">${item.label}</p>
+            ${si.notes?`<p class="text-xs text-slate-500 mt-1 bg-white border border-slate-100 rounded-lg px-3 py-2">${si.notes}</p>`:`<p class="text-xs text-slate-300 italic mt-1">No notes provided</p>`}
+          </div>
+          <!-- Verdict buttons -->
+          <div class="flex gap-1.5 flex-shrink-0">
+            <button onclick="setVerdict('${item.key}','approved')" id="va-${item.key}"
+              class="w-8 h-8 rounded-lg border text-sm font-bold transition-all ${isApproved?'bg-green-500 text-white border-green-500':'border-slate-200 text-slate-300 hover:border-green-400 hover:text-green-500'}">✓</button>
+            <button onclick="setVerdict('${item.key}','revision_needed')" id="vr-${item.key}"
+              class="w-8 h-8 rounded-lg border text-sm font-bold transition-all ${isRevision?'bg-red-500 text-white border-red-500':'border-slate-200 text-slate-300 hover:border-red-400 hover:text-red-500'}">↩</button>
+          </div>
+        </div>
+      </div>
+      <!-- Revision remarks (shown when revision_needed) -->
+      <div id="rb-${item.key}" class="${isRevision?'':'hidden'} border-t border-red-200 bg-red-50 px-4 py-3">
+        <label class="text-xs font-bold text-red-600 block mb-1.5">What needs revision?</label>
+        <textarea id="rm-${item.key}" rows="2" placeholder="Describe what the agent needs to fix or resubmit…"
+          class="w-full border border-red-200 bg-white rounded-lg px-3 py-2 text-xs focus:outline-none resize-none">${prevVerdict.remarks||''}</textarea>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setVerdict(key, verdict){
+  itemVerdicts[key]=verdict;
+  const isApproved=verdict==='approved';
+  const isRevision=verdict==='revision_needed';
+  // Update approve button
+  document.getElementById('va-'+key).className=`w-8 h-8 rounded-lg border text-sm font-bold transition-all ${isApproved?'bg-green-500 text-white border-green-500':'border-slate-200 text-slate-300 hover:border-green-400 hover:text-green-500'}`;
+  // Update revision button
+  document.getElementById('vr-'+key).className=`w-8 h-8 rounded-lg border text-sm font-bold transition-all ${isRevision?'bg-red-500 text-white border-red-500':'border-slate-200 text-slate-300 hover:border-red-400 hover:text-red-500'}`;
+  // Show/hide remarks
+  document.getElementById('rb-'+key).classList.toggle('hidden',!isRevision);
+  // Update row bg
+  const row=document.getElementById('va-'+key).closest('.border.rounded-xl');
+  if(row){
+    const inner=row.querySelector(':scope > div:first-child');
+    inner.className=`p-4 ${isApproved?'bg-green-50/30':isRevision?'bg-red-50/30':'bg-white'}`;
+    row.className=`border rounded-xl overflow-hidden ${isApproved?'border-green-200':isRevision?'border-red-200':'border-slate-200'}`;
+  }
+}
 
 function renderRFIs(){
-  if(!currentRFIs.length){ document.getElementById('rfisList').innerHTML='<p class="text-xs text-slate-400">No RFIs raised yet</p>'; return; }
+  if(!currentRFIs.length){document.getElementById('rfisList').innerHTML='<p class="text-xs text-slate-400 mb-3">No RFIs raised yet</p>';return;}
   document.getElementById('rfisList').innerHTML=currentRFIs.map(r=>`
     <div class="border border-slate-200 rounded-xl p-3 mb-2">
-      <div class="flex items-center gap-2 mb-1">${pill(r.status,r.status==='open'?'bg-red-50 text-red-600':r.status==='responded'?'bg-green-50 text-green-600':'bg-slate-100 text-slate-500')}
+      <div class="flex items-center gap-2 mb-1">
+        ${pill(r.status,r.status==='open'?'bg-red-50 text-red-600':r.status==='responded'?'bg-green-50 text-green-600':'bg-slate-100 text-slate-500')}
         <span class="text-xs text-slate-400">${formatDate(r.created_at)}</span></div>
       <div class="text-sm font-medium text-navy mb-1">${r.question}</div>
-      ${r.response?`<div class="text-xs text-slate-500 bg-green-50 rounded-lg p-2 mt-1"><span class="font-semibold">Response:</span> ${r.response}</div>`:''}
+      ${r.response?`<div class="text-xs text-slate-600 bg-green-50 rounded-lg p-2 mt-1"><span class="font-semibold">Agent:</span> ${r.response}</div>`:''}
     </div>`).join('');
 }
 
@@ -185,22 +313,37 @@ async function raiseRFI(){
   await sb.from('rfis').insert({claim_id:currentClaim.id,raised_by:session.user.id,question:q,status:'open'});
   await sb.from('claims').update({status:'rfi_raised'}).eq('id',currentClaim.id);
   document.getElementById('rfiQuestion').value='';
-  const {data}=await sb.from('rfis').select('*,profiles!rfis_raised_by_fkey(full_name)').eq('claim_id',currentClaim.id).order('created_at',{ascending:false});
+  const {data}=await sb.from('rfis').select('*').eq('claim_id',currentClaim.id).order('created_at',{ascending:false});
   currentRFIs=data||[]; renderRFIs();
 }
 
-async function submitQC(verdict){
+async function submitQC(overallVerdict){
   if(!currentClaim) return;
+  const btnId=overallVerdict==='approved'?'btn-approve':'btn-revise';
+  document.getElementById(btnId).textContent='Saving…';
+  document.getElementById(btnId).disabled=true;
+
   const session=await getSession();
-  const checklist={};
-  CHECKLIST_ITEMS.forEach((item,i)=>{ checklist[item]=document.getElementById('chk-'+i)?.checked||false; });
-  const notes=document.getElementById('qcNotes').value;
-  if(currentQC){
-    await sb.from('qc_reviews').update({status:verdict,checklist,notes,reviewer_id:session.user.id}).eq('id',currentQC.id);
-  } else {
-    await sb.from('qc_reviews').insert({claim_id:currentClaim.id,reviewer_id:session.user.id,status:verdict,checklist,notes});
-  }
-  const newStatus=verdict==='approved'?'resolved':'rfi_raised';
+  const item_reviews={};
+  CHECKLIST.forEach(item=>{
+    item_reviews[item.key]={
+      verdict:itemVerdicts[item.key]||'pending',
+      remarks:document.getElementById('rm-'+item.key)?.value.trim()||''
+    };
+  });
+  const overall_notes=document.getElementById('qcNotes').value.trim();
+
+  await sb.from('qc_checklist_reviews').insert({
+    claim_id:currentClaim.id,
+    submission_id:agentSubmission?.id||null,
+    reviewer_id:session.user.id,
+    round:agentSubmission?.round||1,
+    item_reviews,
+    overall_verdict:overallVerdict,
+    overall_notes
+  });
+
+  const newStatus=overallVerdict==='approved'?'resolved':'rfi_raised';
   await sb.from('claims').update({status:newStatus}).eq('id',currentClaim.id);
   closePanel(); await loadClaims();
 }

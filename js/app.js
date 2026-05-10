@@ -26,6 +26,16 @@ const PRIORITY_PILL = {
 };
 const TYPE_ICONS = {motor_od:'🚗',motor_theft:'🔓',health:'🏥',mact:'⚖️',tp:'🤝',non_motor:'🏢'};
 const ROLE_ROUTES = { key_admin:'admin.html', key_qc:'qc.html', key_agent:'agent.html', external:'dashboard.html' };
+const CHECKLIST = [
+  {key:'policy_document',    label:'Policy document verified'},
+  {key:'subject_documents',  label:'Vehicle / subject documents verified'},
+  {key:'incident_date',      label:'Incident date matches FIR / records'},
+  {key:'location',           label:'Location corroborated'},
+  {key:'photographs',        label:'Photographs / evidence collected'},
+  {key:'witness_statements', label:'Witness statements recorded'},
+  {key:'estimate_verified',  label:'Repair estimate / hospital bill verified'},
+  {key:'agent_visit',        label:'Agent site visit confirmed'},
+];
 
 async function getSession() {
   const { data:{ session } } = await sb.auth.getSession();
@@ -70,9 +80,8 @@ function buildHeader(profile, tenantName='') {
   <header class="bg-navy border-b border-white/10 sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
       <div class="flex items-center gap-4">
-        <a href="index.html" class="flex items-center gap-1">
-          <span class="text-gold font-bold text-lg" style="font-family:'Georgia',serif">KEY</span>
-          <span class="text-white font-medium text-sm">Investigations</span>
+        <a href="index.html" class="flex items-center">
+          <img src="images/logo.jpg" alt="KEY Investigations" class="h-8 rounded-lg" style="background:rgba(255,255,255,0.9);padding:2px 6px;" />
         </a>
         ${tenantName ? `<span class="text-white/20">|</span><span class="text-white/50 text-sm">${tenantName}</span>` : ''}
         <span class="bg-gold/10 border border-gold/20 text-gold text-xs font-bold px-3 py-1 rounded-full hidden sm:inline">

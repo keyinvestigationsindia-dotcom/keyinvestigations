@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "keyinvestigations",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "${port}", "--directory", "/Users/mann/Documents/claude-projects/keyinvestigations"],
+      "runtimeExecutable": "ruby",
+      "runtimeArgs": ["-run", "-e", "httpd", "/Users/mann/Documents/claude-projects/keyinvestigations", "-p", "${port}"],
       "port": 3333,
       "autoPort": true
     }
