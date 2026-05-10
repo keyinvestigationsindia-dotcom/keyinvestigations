@@ -81,7 +81,8 @@ function buildHeader(profile, tenantName='') {
     <div class="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
       <div class="flex items-center gap-4">
         <a href="index.html" class="flex items-center">
-          <img src="images/logo.png" alt="KEY Investigations" class="h-8 rounded-lg" style="background:rgba(255,255,255,0.9);padding:2px 6px;" />
+          <span class="text-gold font-bold text-lg" style="font-family:'Georgia',serif">KEY</span>
+          <span class="text-white font-medium text-sm">Investigations</span>
         </a>
         ${tenantName ? `<span class="text-white/20">|</span><span class="text-white/50 text-sm">${tenantName}</span>` : ''}
         <span class="bg-gold/10 border border-gold/20 text-gold text-xs font-bold px-3 py-1 rounded-full hidden sm:inline">
