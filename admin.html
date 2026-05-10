@@ -46,9 +46,14 @@
 <div id="assignModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-navy/70 backdrop-blur-sm">
   <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
     <div class="flex items-center justify-between mb-5"><h2 class="font-bold text-navy" id="assignTitle">Assign Agent</h2><button onclick="closeAssign()" class="text-slate-400">✕</button></div>
+    <!-- Claim context -->
+    <div id="assignContext" class="bg-slate-50 rounded-xl p-3 mb-4 text-sm"></div>
     <div class="space-y-4">
-      <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Select Agent</label>
-        <select id="agentSelect" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold"></select></div>
+      <div>
+        <label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Select Agent</label>
+        <div id="agentCards" class="space-y-2 max-h-60 overflow-y-auto"></div>
+        <input type="hidden" id="selectedAgentId" />
+      </div>
       <div><label class="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Priority</label>
         <select id="prioritySelect" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gold">
           <option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
@@ -159,8 +164,8 @@ function renderAgents(){
   document.getElementById('agentsTable').innerHTML=`<table class="w-full">
     <thead class="bg-slate-50 border-b"><tr>
       <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Agent</th>
-      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">States</th>
-      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Claim Types</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Coverage States</th>
+      <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Claim Specialization</th>
       <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Active Cases</th>
       <th class="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-400">Capacity</th>
     </tr></thead>
@@ -168,12 +173,24 @@ function renderAgents(){
       ${allAgents.map(a=>{
         const active=allClaims.filter(c=>c.agent_id===a.id&&!['resolved','closed'].includes(c.status)).length;
         const pct=Math.round((active/(a.max_cases||15))*100);
+        const capColor=pct>=90?'bg-red-500':pct>=70?'bg-amber-500':'bg-gold';
         return `<tr>
-          <td class="px-5 py-4"><div class="font-semibold text-navy text-sm">${a.profiles?.full_name||'–'}</div><div class="text-xs text-slate-400">${a.profiles?.email||''}</div></td>
-          <td class="px-5 py-4 text-sm text-slate-500">${(a.states||[]).join(', ')||'All'}</td>
-          <td class="px-5 py-4 text-sm text-slate-500">${(a.claim_types||[]).join(', ')||'All'}</td>
+          <td class="px-5 py-4">
+            <div class="font-semibold text-navy text-sm">${a.profiles?.full_name||'–'}</div>
+            <div class="text-xs text-slate-400">${a.profiles?.email||''}</div>
+            ${!a.active?'<span class="text-[10px] text-red-500 font-semibold">INACTIVE</span>':''}
+          </td>
+          <td class="px-5 py-4">
+            <div class="flex flex-wrap gap-1">${(a.states||[]).length?(a.states||[]).map(s=>`<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-600">📍${s}</span>`).join(''):'<span class="text-xs text-slate-400">All states</span>'}</div>
+          </td>
+          <td class="px-5 py-4">
+            <div class="flex flex-wrap gap-1">${(a.claim_types||[]).length?(a.claim_types||[]).map(t=>`<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700">${TYPE_ICONS[t]||'📋'} ${t.replace('_',' ')}</span>`).join(''):'<span class="text-xs text-slate-400">All types</span>'}</div>
+          </td>
           <td class="px-5 py-4 font-bold ${active>=(a.max_cases||15)?'text-red-500':'text-navy'}">${active} / ${a.max_cases||15}</td>
-          <td class="px-5 py-4 w-36"><div class="bg-slate-100 rounded-full h-2"><div class="bg-gold rounded-full h-2" style="width:${Math.min(pct,100)}%"></div></div></td>
+          <td class="px-5 py-4 w-36">
+            <div class="bg-slate-100 rounded-full h-2.5"><div class="${capColor} rounded-full h-2.5 transition-all" style="width:${Math.min(pct,100)}%"></div></div>
+            <div class="text-[10px] text-slate-400 mt-1">${pct}% utilized</div>
+          </td>
         </tr>`;}).join('')}
     </tbody></table>`;
 }
@@ -187,22 +204,92 @@ function showTab(t){
   document.getElementById('t-'+t).className='tab-btn active px-5 py-2 rounded-xl text-sm font-semibold bg-navy text-white';
 }
 
-// ASSIGN
+// ASSIGN – smart matching by location + claim type + capacity
+function scoreAgent(agent, claim){
+  const activeCases = allClaims.filter(c=>c.agent_id===agent.id&&!['resolved','closed'].includes(c.status)).length;
+  const maxCases = agent.max_cases||15;
+  const agentStates = (agent.states||[]).map(s=>s.toLowerCase());
+  const agentTypes = (agent.claim_types||[]).map(t=>t.toLowerCase());
+  const claimState = (claim.location_state||'').toLowerCase();
+  const claimType = (claim.claim_type_id||'').toLowerCase();
+
+  let score = 0;
+  const tags = [];
+
+  // State match: +40 points
+  const stateMatch = agentStates.length===0 || agentStates.some(s=>claimState.includes(s)||s.includes(claimState));
+  if(stateMatch && claimState){ score+=40; tags.push({label:'📍 State match', cls:'bg-green-50 text-green-700'}); }
+  else if(claimState && agentStates.length>0){ tags.push({label:'📍 No state match', cls:'bg-red-50 text-red-500'}); }
+
+  // Claim type match: +40 points
+  const typeMatch = agentTypes.length===0 || agentTypes.includes(claimType);
+  if(typeMatch && claimType){ score+=40; tags.push({label:'📋 Type match', cls:'bg-green-50 text-green-700'}); }
+  else if(claimType && agentTypes.length>0){ tags.push({label:'📋 No type match', cls:'bg-red-50 text-red-500'}); }
+
+  // Capacity: +20 points scaled by availability
+  const capacityPct = 1 - (activeCases/maxCases);
+  if(activeCases >= maxCases){ score-=100; tags.push({label:'🚫 At capacity', cls:'bg-red-50 text-red-500'}); }
+  else { score += Math.round(20*capacityPct); tags.push({label:`${activeCases}/${maxCases} cases`, cls:'bg-slate-100 text-slate-600'}); }
+
+  if(!agent.active){ score-=200; tags.push({label:'Inactive', cls:'bg-red-50 text-red-500'}); }
+
+  return { score, tags, activeCases, maxCases, stateMatch, typeMatch };
+}
+
 function openAssign(id){
   assignClaimId=id;
   const c=allClaims.find(x=>x.id===id);
   document.getElementById('assignTitle').textContent='Assign Agent – '+c?.claim_number;
-  document.getElementById('agentSelect').innerHTML=allAgents.map(a=>{
-    const active=allClaims.filter(c=>c.agent_id===a.id&&!['resolved','closed'].includes(c.status)).length;
-    return `<option value="${a.id}">${a.profiles?.full_name} (${active}/${a.max_cases||15} cases)</option>`;
+
+  // Show claim context
+  document.getElementById('assignContext').innerHTML=`
+    <div class="flex items-center gap-3 text-slate-600">
+      <span>${TYPE_ICONS[c.claim_type_id]||'📋'}</span>
+      <span class="font-medium">${c.claim_types?.label||c.claim_type_id}</span>
+      <span class="text-slate-300">·</span>
+      <span>📍 ${c.location_state||'No location'}${c.location_city?', '+c.location_city:''}</span>
+    </div>`;
+
+  // Score and sort agents
+  const scored = allAgents.map(a=>({agent:a, ...scoreAgent(a, c)})).sort((a,b)=>b.score-a.score);
+  const bestId = scored.length ? scored[0].agent.id : null;
+  const preselect = c?.agent_id || bestId;
+  document.getElementById('selectedAgentId').value = preselect||'';
+
+  document.getElementById('agentCards').innerHTML = scored.map(({agent:a, tags, activeCases, maxCases, score})=>{
+    const selected = a.id===preselect;
+    const isBest = a.id===bestId && !c?.agent_id;
+    return `<div onclick="selectAgent('${a.id}')" id="ac-${a.id}"
+      class="agent-card relative p-3 rounded-xl border-2 cursor-pointer transition-all ${selected?'border-gold bg-gold/5':'border-slate-200 hover:border-slate-300'}">
+      ${isBest?'<span class="absolute -top-2 -right-2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">BEST MATCH</span>':''}
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="font-semibold text-navy text-sm">${a.profiles?.full_name||'–'}</span>
+        <span class="text-xs text-slate-400">${a.profiles?.email||''}</span>
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        ${tags.map(t=>`<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${t.cls}">${t.label}</span>`).join('')}
+      </div>
+      ${a.states?.length?`<div class="mt-1.5 text-[10px] text-slate-400">States: ${a.states.join(', ')}</div>`:''}
+      ${a.claim_types?.length?`<div class="text-[10px] text-slate-400">Types: ${a.claim_types.map(t=>(TYPE_ICONS[t]||'')+' '+t.replace('_',' ')).join(', ')}</div>`:''}
+    </div>`;
   }).join('');
-  if(c?.agent_id) document.getElementById('agentSelect').value=c.agent_id;
+
   if(c?.priority) document.getElementById('prioritySelect').value=c.priority;
   document.getElementById('assignModal').classList.remove('hidden'); document.getElementById('assignModal').classList.add('flex');
 }
+
+function selectAgent(id){
+  document.getElementById('selectedAgentId').value=id;
+  document.querySelectorAll('.agent-card').forEach(el=>{el.classList.remove('border-gold','bg-gold/5');el.classList.add('border-slate-200');});
+  const card=document.getElementById('ac-'+id);
+  if(card){card.classList.remove('border-slate-200');card.classList.add('border-gold','bg-gold/5');}
+}
+
 function closeAssign(){ document.getElementById('assignModal').classList.add('hidden'); document.getElementById('assignModal').classList.remove('flex'); }
+
 async function assignAgent(){
-  const agentId=document.getElementById('agentSelect').value;
+  const agentId=document.getElementById('selectedAgentId').value;
+  if(!agentId){alert('Please select an agent');return;}
   const priority=document.getElementById('prioritySelect').value;
   const {error}=await sb.from('claims').update({agent_id:agentId,priority,status:'assigned'}).eq('id',assignClaimId);
   if(error){alert(error.message);return;}
