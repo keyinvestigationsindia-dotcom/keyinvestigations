@@ -77,7 +77,9 @@
         <a href="#locations" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Locations</a>
         <a href="#careers" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Careers</a>
         <a href="#contact" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Contact</a>
-        <a href="login.html" class="bg-gold hover:bg-gold-light text-navy px-5 py-2 rounded-lg text-sm font-bold transition-all">Customer Login</a>
+        <div id="navAuth">
+          <a href="login.html" class="bg-gold hover:bg-gold-light text-navy px-5 py-2 rounded-lg text-sm font-bold transition-all">Login</a>
+        </div>
       </nav>
       <button id="menuBtn" class="md:hidden text-white p-2">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -91,7 +93,9 @@
         <a href="#locations" class="text-white/80 hover:text-gold text-sm font-medium">Locations</a>
         <a href="#careers" class="text-white/80 hover:text-gold text-sm font-medium">Careers</a>
         <a href="#contact" class="text-white/80 hover:text-gold text-sm font-medium">Contact</a>
-        <a href="login.html" class="border border-gold/50 text-gold px-4 py-2 rounded-lg text-sm font-semibold w-fit">Customer Login</a>
+        <div id="mobileAuth">
+          <a href="login.html" class="border border-gold/50 text-gold px-4 py-2 rounded-lg text-sm font-semibold w-fit">Login</a>
+        </div>
       </div>
     </div>
   </header>
@@ -143,18 +147,18 @@
     </div>
   </section>
 
-  <!-- CLIENT LOGIN BANNER -->
-  <section class="bg-gold py-5">
+  <!-- LOGIN / DASHBOARD BANNER -->
+  <section class="bg-gold py-5" id="authBanner">
     <div class="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-3" id="bannerText">
         <span class="text-navy text-xl">🔐</span>
         <div>
-          <p class="text-navy font-bold text-sm">Existing Client?</p>
+          <p class="text-navy font-bold text-sm">Existing User?</p>
           <p class="text-navy/70 text-xs">Log in to track your investigation cases and reports</p>
         </div>
       </div>
-      <a href="login.html" class="bg-navy hover:bg-navy-800 text-white font-bold px-6 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0">
-        Access Client Portal →
+      <a href="login.html" id="bannerBtn" class="bg-navy hover:bg-navy-800 text-white font-bold px-6 py-2.5 rounded-lg text-sm transition-all whitespace-nowrap flex-shrink-0">
+        Access Portal →
       </a>
     </div>
   </section>
@@ -425,7 +429,7 @@
           <a href="#locations" class="text-white/40 hover:text-gold text-sm transition-colors">Locations</a>
           <a href="#careers" class="text-white/40 hover:text-gold text-sm transition-colors">Careers</a>
           <a href="#contact" class="text-white/40 hover:text-gold text-sm transition-colors">Contact</a>
-          <a href="login.html" class="text-white/40 hover:text-gold text-sm transition-colors">Customer Login</a>
+          <a href="login.html" id="footerAuthLink" class="text-white/40 hover:text-gold text-sm transition-colors">Login</a>
         </nav>
         <div class="text-right text-sm text-white/30">
           <p>© 2026 KEY Investigations</p>
@@ -435,7 +439,66 @@
     </div>
   </footer>
 
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
   <script>
+    // Auth-aware UI
+    (async () => {
+      const ROLE_ROUTES = { key_admin:'admin.html', key_qc:'qc.html', key_agent:'agent.html', external:'dashboard.html' };
+      try {
+        const session = await getSession();
+        if (!session) return;
+        const profile = await getProfile(session.user.id);
+        if (!profile) return;
+        const dashUrl = ROLE_ROUTES[profile.system_role] || 'dashboard.html';
+        const name = profile.full_name || profile.email;
+        const initials = (name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+        // Desktop nav
+        document.getElementById('navAuth').innerHTML = `
+          <div class="flex items-center gap-3">
+            <a href="${dashUrl}" class="text-white/70 hover:text-gold text-sm font-medium transition-colors">Dashboard</a>
+            <div class="relative group">
+              <button class="w-8 h-8 bg-gold rounded-full flex items-center justify-center text-navy text-xs font-bold cursor-pointer">${initials}</button>
+              <div class="absolute right-0 top-10 bg-white rounded-xl shadow-2xl border border-slate-200 w-48 py-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                <div class="px-4 py-2 border-b border-slate-100">
+                  <p class="text-navy text-sm font-semibold truncate">${name}</p>
+                  <p class="text-slate-400 text-xs truncate">${profile.email}</p>
+                </div>
+                <a href="${dashUrl}" class="block px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-navy">Go to Dashboard</a>
+                <button onclick="signOut()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50">Sign Out</button>
+              </div>
+            </div>
+          </div>`;
+
+        // Mobile nav
+        document.getElementById('mobileAuth').innerHTML = `
+          <a href="${dashUrl}" class="border border-gold/50 text-gold px-4 py-2 rounded-lg text-sm font-semibold w-fit">Dashboard</a>
+          <div class="flex items-center justify-between">
+            <span class="text-white/60 text-sm">${name}</span>
+            <button onclick="signOut()" class="text-red-400 text-sm">Sign Out</button>
+          </div>`;
+
+        // Gold banner
+        document.getElementById('bannerText').innerHTML = `
+          <span class="text-navy text-xl">👋</span>
+          <div>
+            <p class="text-navy font-bold text-sm">Welcome back, ${(profile.full_name || '').split(' ')[0] || 'User'}!</p>
+            <p class="text-navy/70 text-xs">Continue where you left off</p>
+          </div>`;
+        const bannerBtn = document.getElementById('bannerBtn');
+        bannerBtn.href = dashUrl;
+        bannerBtn.textContent = 'Go to Dashboard →';
+
+        // Footer
+        const footerLink = document.getElementById('footerAuthLink');
+        footerLink.href = dashUrl;
+        footerLink.textContent = 'Dashboard';
+      } catch (e) {
+        // Not logged in, keep defaults
+      }
+    })();
+
     // Navbar scroll effect
     const navbar = document.getElementById('navbar');
     window.addEventListener('scroll', () => {
