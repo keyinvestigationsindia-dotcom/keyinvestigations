@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://keyinvestigations.in/sitemap.xml
+
+# Block internal dashboard pages from indexing
+Disallow: /admin.html
+Disallow: /dashboard.html
+Disallow: /qc.html
+Disallow: /agent.html
