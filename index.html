@@ -111,7 +111,25 @@
       letter-spacing: 0.2em; text-transform: uppercase;
     }
 
+    .clock {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 5rem; font-weight: 200;
+      letter-spacing: 0.08em;
+      background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(201,168,76,0.7));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.3rem;
+      line-height: 1;
+    }
+    .clock-date {
+      color: rgba(255,255,255,0.15);
+      font-size: 0.8rem; font-weight: 500;
+      letter-spacing: 0.25em; text-transform: uppercase;
+      margin-bottom: 2.5rem;
+    }
+
     @media (max-width: 640px) {
+      .clock { font-size: 3rem; }
       .brand { font-size: 1.75rem; }
       .launching { padding: 12px 24px; }
       .launching span { font-size: 0.85rem; }
@@ -128,6 +146,9 @@
     <h1 class="brand"><em>KEY</em> Investigations</h1>
     <p class="tagline">Unlocking the Truth</p>
 
+    <div id="liveClock" class="clock"></div>
+    <div id="clockDate" class="clock-date"></div>
+
     <div class="launching">
       <div class="dot"></div>
       <span>Launching Soon</span>
@@ -143,5 +164,20 @@
   </div>
 
   <div class="bottom">&copy; 2026 KEY Investigations</div>
+
+  <script>
+    function updateClock() {
+      const now = new Date();
+      const h = now.getHours().toString().padStart(2,'0');
+      const m = now.getMinutes().toString().padStart(2,'0');
+      const s = now.getSeconds().toString().padStart(2,'0');
+      document.getElementById('liveClock').textContent = h + ' : ' + m + ' : ' + s;
+
+      const options = { weekday:'long', year:'numeric', month:'long', day:'numeric' };
+      document.getElementById('clockDate').textContent = now.toLocaleDateString('en-IN', options);
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+  </script>
 </body>
 </html>
