@@ -3,3 +3,4 @@ supabase/.temp/
 .env*
 secrets.local.json
 *.local.json
+index-full.html
