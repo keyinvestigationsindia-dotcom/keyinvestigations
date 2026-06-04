@@ -4,3 +4,8 @@ supabase/.temp/
 secrets.local.json
 *.local.json
 index-full.html
+for-insurers.html
+privacy.html
+terms.html
+confidentiality.html
+evidence-policy.html
