@@ -93,6 +93,7 @@ const initialCase = {
 };
 
 const DOC_CATEGORIES = [
+  // ── 1. Incident & Scene ──
   { key:"fir", title:"FIR Details", fields:[
     {key:"firNo",label:"FIR No., Date & Police Station"},
     {key:"filedBy",label:"Filed by (name & relation/status)"},
@@ -104,6 +105,15 @@ const DOC_CATEGORIES = [
     {key:"dateTime",label:"Date & time of panchnama"},
     {key:"narrative",label:"Panchnama details (vehicles/evidence at spot, paste text)",area:true},
   ]},
+  { key:"dar", title:"DAR (Detailed Accident Report)", fields:[
+    {key:"reportNo",label:"DAR no. & date"},
+    {key:"issuedBy",label:"Issued by (police station / officer)"},
+    {key:"accidentDescription",label:"Accident description as per DAR",area:true},
+    {key:"vehiclesInvolved",label:"Vehicles involved & damage details"},
+    {key:"narrative",label:"Other DAR details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  // ── 2. Death-related ──
   { key:"inquestPanchnama", title:"Inquest Panchnama (Death cases)", fields:[
     {key:"dateTime",label:"Date, time & place of inquest"},
     {key:"narrative",label:"Inquest panchnama details (paste text)",area:true},
@@ -113,6 +123,7 @@ const DOC_CATEGORIES = [
     {key:"causeOfDeath",label:"Cause of death as per PM"},
     {key:"narrative",label:"Other PM details (paste text)",area:true},
   ]},
+  // ── 3. Victim Details ──
   { key:"particulars", title:"Particulars of Deceased / Injured", fields:[
     {key:"name",label:"Name"},
     {key:"ageAsPerPetition",label:"Age/DOB as per Petition"},
@@ -125,6 +136,7 @@ const DOC_CATEGORIES = [
     {key:"income",label:"Income claimed & proof (petition figure vs private statement; salary register/wage slips if employed)",area:true},
     {key:"dependents",label:"Dependents (Death cases) — name, age, relation",area:true},
   ], analysisHint:`Carefully compare the age/DOB values given for Petition, FIR, PMR-or-MLC, and Aadhar/ID proof — these frequently differ by a few years across documents in real cases, and any such mismatch should be captured precisely (e.g. "58 as per Petition, 59 as per FIR, 52 as per PMR, 59 as per Aadhar") rather than averaged or silently resolved; this will be used to flag a discrepancy in the final report. Likewise, if the income figure in the petition differs from a private statement or verified salary/wage figure, record both values rather than picking one.` },
+  // ── 4. Medical ──
   { key:"mlcMedical", title:"MLC & Medical / Injury Details", fields:[
     {key:"hospital",label:"Hospital(s) name"},
     {key:"admissionDate",label:"Date of admission"},
@@ -132,11 +144,41 @@ const DOC_CATEGORIES = [
     {key:"natureOfInjuries",label:"Nature of injuries as per MLC",area:true},
     {key:"narrative",label:"Other MLC / medical findings (paste text)",area:true},
   ]},
+  { key:"dischargeSummary", title:"Discharge Summary", fields:[
+    {key:"hospital",label:"Hospital name & address"},
+    {key:"admissionDate",label:"Date of admission"},
+    {key:"dischargeDate",label:"Date of discharge"},
+    {key:"diagnosis",label:"Diagnosis / reason for admission"},
+    {key:"treatment",label:"Treatment given / procedures performed",area:true},
+    {key:"conditionAtDischarge",label:"Condition at time of discharge"},
+    {key:"narrative",label:"Other discharge summary details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  // ── 5. Statements ──
   { key:"statement161", title:"161 Eyewitness Statements", fields:[
     {key:"witnesses",label:"Witness name(s), relation & role (eyewitness / arrived after / IV driver)"},
     {key:"witnessAnalysis",label:"Cross-check: who saw the accident happen vs arrived afterward",area:true},
     {key:"narrative",label:"Statement content summary (paste text)",area:true},
   ], analysisHint:`These statements typically include a mix of: (a) genuine eyewitnesses who directly saw the accident occur, (b) people who arrived at the scene only after it happened, and (c) the Insured Vehicle (IV) driver's own statement. For the "witnessAnalysis" field specifically: go through each statement and classify each person based ONLY on what they explicitly say about their presence/timing — e.g. "saw the truck hit the bike" implies direct eyewitness; "heard a noise and came running" or "reached the spot after" implies arrived afterward. Then summarize clearly, e.g. "4 witnesses (name1, name2, name3, name4) directly saw the accident occur; 2 witnesses (name5, name6) arrived at the scene afterward; [name]'s statement is the IV driver's own account." If a statement doesn't clearly say which, note it as unclear rather than guessing.` },
+  { key:"insuredStatement", title:"Insured Statement", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Insured not available / untraceable"]},
+    {key:"name",label:"Name & relation to claim"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
+  ], analysisHint:"In many cases the insured does not provide a written statement. If the status says 'Not provided' or similar, note it clearly in the brief — do not invent statement content." },
+  { key:"driverStatement", title:"Driver Statement (IV Driver)", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Driver absconding / untraceable"]},
+    {key:"name",label:"Driver name"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ], analysisHint:"If driver statement is not available, note the reason clearly. Do not fabricate statement content." },
+  { key:"claimantStatement", title:"Claimant Statement(s)", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Claimant not available"]},
+    {key:"claimantNames",label:"Claimant name(s) & relation to deceased/injured"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
+  ], analysisHint:"In many cases claimants do not give written statements. If the status indicates not provided, record that clearly in the brief without inventing content." },
+  // ── 6. Legal / Police ──
   { key:"chargesheet", title:"Chargesheet Details", fields:[
     {key:"status",label:"Status — filed / pending / not available"},
     {key:"chargesheetedDriver",label:"Driver/vehicle chargesheeted against"},
@@ -146,6 +188,7 @@ const DOC_CATEGORIES = [
   { key:"otherPolicePapers", title:"Other Police Papers", fields:[
     {key:"narrative",label:"Arrest memo, RTI/appeal status, other papers (paste text)",area:true},
   ]},
+  // ── 7. IV (Insured Vehicle) Documents ──
   { key:"ivDriver", title:"IV Driver Details", fields:[
     {key:"name",label:"Name, father's name & address"},
     {key:"dlNo",label:"DL no., issue date, validity, RTO, class"},
@@ -169,6 +212,7 @@ const DOC_CATEGORIES = [
     {key:"conditions",label:"Key policy conditions"},
     {key:"narrative",label:"Other policy details (paste text)",area:true},
   ]},
+  // ── 8. TP (Third Party) Documents ──
   { key:"tpVehicle", title:"TP (Third Party) Vehicle Details", fields:[
     {key:"regNo",label:"TP vehicle registration no."},
     {key:"vehicleType",label:"Vehicle type / make / model"},
@@ -182,24 +226,6 @@ const DOC_CATEGORIES = [
     {key:"narrative",label:"Other TP vehicle details (paste text)",area:true},
     {key:"remarks",label:"Remarks",area:true},
   ]},
-  { key:"insuredStatement", title:"Insured Statement", fields:[
-    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Insured not available / untraceable"]},
-    {key:"name",label:"Name & relation to claim"},
-    {key:"narrative",label:"Statement content summary (paste text)",area:true},
-    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
-  ], analysisHint:"In many cases the insured does not provide a written statement. If the status says 'Not provided' or similar, note it clearly in the brief — do not invent statement content." },
-  { key:"driverStatement", title:"Driver Statement (IV Driver)", fields:[
-    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Driver absconding / untraceable"]},
-    {key:"name",label:"Driver name"},
-    {key:"narrative",label:"Statement content summary (paste text)",area:true},
-    {key:"remarks",label:"Remarks",area:true},
-  ], analysisHint:"If driver statement is not available, note the reason clearly. Do not fabricate statement content." },
-  { key:"claimantStatement", title:"Claimant Statement(s)", fields:[
-    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Claimant not available"]},
-    {key:"claimantNames",label:"Claimant name(s) & relation to deceased/injured"},
-    {key:"narrative",label:"Statement content summary (paste text)",area:true},
-    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
-  ], analysisHint:"In many cases claimants do not give written statements. If the status indicates not provided, record that clearly in the brief without inventing content." },
   { key:"tpRiderDL", title:"TP Rider / Driver DL Details", fields:[
     {key:"status",label:"DL status",options:["Available & valid","Available but expired","Available — class mismatch","Not available","Fake / suspicious","Not applicable"]},
     {key:"dlNo",label:"DL no., issue date, validity, RTO, class"},
@@ -208,14 +234,7 @@ const DOC_CATEGORIES = [
     {key:"narrative",label:"Other DL details (paste text)",area:true},
     {key:"remarks",label:"Remarks (reason for DL non-availability, verification findings etc.)",area:true},
   ], analysisHint:"In many cases the third-party rider/driver DL is not available for investigation. If DL is not available, clearly note the reason provided. If DL class does not match the vehicle driven, flag it as a red flag." },
-  { key:"dar", title:"DAR (Detailed Accident Report)", fields:[
-    {key:"reportNo",label:"DAR no. & date"},
-    {key:"issuedBy",label:"Issued by (police station / officer)"},
-    {key:"accidentDescription",label:"Accident description as per DAR",area:true},
-    {key:"vehiclesInvolved",label:"Vehicles involved & damage details"},
-    {key:"narrative",label:"Other DAR details (paste text)",area:true},
-    {key:"remarks",label:"Remarks",area:true},
-  ]},
+  // ── 9. Inspection ──
   { key:"mcr", title:"MCR (Motor Collision / Mechanical Inspection Report)", fields:[
     {key:"reportNo",label:"MCR / inspection report no. & date"},
     {key:"issuedBy",label:"Issued by (authority / inspector)"},
@@ -223,16 +242,6 @@ const DOC_CATEGORIES = [
     {key:"damageDescription",label:"Damage description & findings",area:true},
     {key:"mechanicalDefect",label:"Any pre-existing mechanical defect found"},
     {key:"narrative",label:"Other MCR / inspection details (paste text)",area:true},
-    {key:"remarks",label:"Remarks",area:true},
-  ]},
-  { key:"dischargeSummary", title:"Discharge Summary", fields:[
-    {key:"hospital",label:"Hospital name & address"},
-    {key:"admissionDate",label:"Date of admission"},
-    {key:"dischargeDate",label:"Date of discharge"},
-    {key:"diagnosis",label:"Diagnosis / reason for admission"},
-    {key:"treatment",label:"Treatment given / procedures performed",area:true},
-    {key:"conditionAtDischarge",label:"Condition at time of discharge"},
-    {key:"narrative",label:"Other discharge summary details (paste text)",area:true},
     {key:"remarks",label:"Remarks",area:true},
   ]},
 ];
