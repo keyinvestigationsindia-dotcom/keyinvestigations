@@ -51,9 +51,23 @@ async function doAuth(){
   document.getElementById('app-root').style.display='block';
 }
 doAuth();
+
+// Catch Babel / React errors and show them
+window.addEventListener('error', function(e){
+  var d = document.getElementById('app-root');
+  if(d) d.innerHTML = '<div style="padding:40px;color:red;font-size:14px;font-family:monospace;white-space:pre-wrap">Error: '+e.message+'\n'+(e.filename||'')+':'+(e.lineno||'')+'</div>';
+  document.getElementById('auth-loading').style.display='none';
+  d.style.display='block';
+});
+window.addEventListener('unhandledrejection', function(e){
+  var d = document.getElementById('app-root');
+  if(d) d.innerHTML = '<div style="padding:40px;color:red;font-size:14px;font-family:monospace;white-space:pre-wrap">Promise Error: '+(e.reason&&e.reason.message||e.reason||'unknown')+'</div>';
+  document.getElementById('auth-loading').style.display='none';
+  d.style.display='block';
+});
 </script>
 
-<script type="text/babel">
+<script type="text/babel" data-presets="env,react">
 const { useState, useRef, useEffect } = React;
 
 // ── Inline SVG Icons ──
