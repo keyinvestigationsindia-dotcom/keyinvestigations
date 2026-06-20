@@ -23,6 +23,19 @@ html{font-family:'Inter',system-ui,sans-serif}
 <script src="js/supabase.js"></script>
 <script src="js/app.js"></script>
 <script>
+// Auto-fill API key from URL hash (e.g. report.html#key=sk-ant-...)
+// This lets admin share a one-click setup link with team
+(function(){
+  const h = window.location.hash;
+  if(h && h.startsWith('#key=')){
+    const k = h.substring(5);
+    if(k.startsWith('sk-ant-')){
+      localStorage.setItem('ki_anthropic_key', k);
+    }
+    history.replaceState(null, '', window.location.pathname);
+  }
+})();
+
 // Auth guard — allow key_admin, key_qc, key_agent
 let currentProfile = null;
 (async()=>{
@@ -36,7 +49,6 @@ let currentProfile = null;
   document.getElementById('header').innerHTML = buildHeader(profile, profile.system_role==='key_admin'?'Super Admin':'');
   document.getElementById('auth-loading').style.display='none';
   document.getElementById('app-root').style.display='block';
-  // Load React app after auth
   loadReportApp();
 })();
 </script>
