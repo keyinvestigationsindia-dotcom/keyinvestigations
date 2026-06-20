@@ -38,7 +38,7 @@ html{font-family:'Inter',system-ui,sans-serif}
 
 // Auth guard — allow key_admin, key_qc, key_agent
 let currentProfile = null;
-(async()=>{
+async function doAuth(){
   const session = await getSession();
   if(!session) return window.location.href='login.html';
   const profile = await getProfile(session.user.id);
@@ -49,12 +49,11 @@ let currentProfile = null;
   document.getElementById('header').innerHTML = buildHeader(profile, profile.system_role==='key_admin'?'Super Admin':'');
   document.getElementById('auth-loading').style.display='none';
   document.getElementById('app-root').style.display='block';
-  loadReportApp();
-})();
+}
+doAuth();
 </script>
 
-<script type="text/babel" data-type="module">
-function loadReportApp() {
+<script type="text/babel">
 const { useState, useRef, useEffect } = React;
 
 // ── Inline SVG Icons ──
@@ -968,8 +967,5 @@ function App() {
 // Mount React
 const root = ReactDOM.createRoot(document.getElementById('app-root'));
 root.render(<App />);
-}
-// Expose for auth script
-window.loadReportApp = loadReportApp;
 </script>
 </body></html>
