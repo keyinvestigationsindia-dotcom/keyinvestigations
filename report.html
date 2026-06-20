@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Report Drafter – KEY Investigations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#0a0f1e'},gold:{DEFAULT:'#c9a84c',light:'#e2c17a'}}}}}</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+html{font-family:'Inter',system-ui,sans-serif}
+#auth-loading{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0f1e;color:#c9a84c;font-size:14px;gap:10px}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.spin-icon{animation:spin 1s linear infinite;display:inline-block}
+</style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="auth-loading"><span class="spin-icon">⟳</span> Loading...</div>
+<div id="header"></div>
+<div id="app-root" style="display:none"></div>
+
+<script src="js/supabase.js"></script>
+<script src="js/app.js"></script>
+<script>
+// Auth guard — allow key_admin, key_qc, key_agent
+let currentProfile = null;
+(async()=>{
+  const session = await getSession();
+  if(!session) return window.location.href='login.html';
+  const profile = await getProfile(session.user.id);
+  if(!profile) return window.location.href='login.html';
+  const allowed = ['key_admin','key_qc','key_agent'];
+  if(!allowed.includes(profile.system_role)) return window.location.href=ROLE_ROUTES[profile.system_role]||'login.html';
+  currentProfile = profile;
+  document.getElementById('header').innerHTML = buildHeader(profile, profile.system_role==='key_admin'?'Super Admin':'');
+  document.getElementById('auth-loading').style.display='none';
+  document.getElementById('app-root').style.display='block';
+  // Load React app after auth
+  loadReportApp();
+})();
+</script>
+
+<script type="text/babel" data-type="module">
+function loadReportApp() {
+const { useState, useRef, useEffect } = React;
+
+// ── Inline SVG Icons ──
+const Icon = {
+  FileText: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+  AlertTriangle: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  Loader2: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{...style,animation:'spin 1s linear infinite'}} {...p}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+  ChevronDown: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="6 9 12 15 18 9"/></svg>,
+  ChevronRight: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="9 18 15 12 9 6"/></svg>,
+  Upload: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  Sparkles: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z"/></svg>,
+  Key: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>,
+  Settings: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+};
+
+const initialCase = {
+  agencyName: "KEY Investigations",
+  agencyPhone: "+91 94123 41515",
+  refNo: "", date: "", insurer: "", insurerAddress: "",
+  claimType: "MACT Death Claim", claimNo: "", court: "",
+  claimAmount: "", advocate: "", doa: "", ivVehicle: "",
+  insured: "", policyNo: "", policyPeriod: "", tpClaimNo: "",
+};
+
+const DOC_CATEGORIES = [
+  { key:"fir", title:"FIR Details", fields:[
+    {key:"firNo",label:"FIR No., Date & Police Station"},
+    {key:"filedBy",label:"Filed by (name & relation/status)"},
+    {key:"filedAgainst",label:"Filed against — driver/vehicle no."},
+    {key:"delayReason",label:"Delay in lodging FIR — reason / none"},
+    {key:"narrative",label:"FIR narrative / content (paste text)",area:true},
+  ], analysisHint:`If the vehicle registration number written in the FIR differs from the number on other documents in this case (RC, Policy, Permit, Fitness), note the exact mismatched numbers in the "narrative" field rather than silently treating one as correct — it may be a transcription error, but it should be visible for the investigator to confirm, not auto-resolved.` },
+  { key:"spotPanchnama", title:"Spot Panchnama", fields:[
+    {key:"dateTime",label:"Date & time of panchnama"},
+    {key:"narrative",label:"Panchnama details (vehicles/evidence at spot, paste text)",area:true},
+  ]},
+  { key:"inquestPanchnama", title:"Inquest Panchnama (Death cases)", fields:[
+    {key:"dateTime",label:"Date, time & place of inquest"},
+    {key:"narrative",label:"Inquest panchnama details (paste text)",area:true},
+  ]},
+  { key:"pmReport", title:"Postmortem Report (Death cases)", fields:[
+    {key:"dateTime",label:"Date & place of PM"},
+    {key:"causeOfDeath",label:"Cause of death as per PM"},
+    {key:"narrative",label:"Other PM details (paste text)",area:true},
+  ]},
+  { key:"particulars", title:"Particulars of Deceased / Injured", fields:[
+    {key:"name",label:"Name"},
+    {key:"ageAsPerPetition",label:"Age/DOB as per Petition"},
+    {key:"ageAsPerFIR",label:"Age/DOB as per FIR"},
+    {key:"ageAsPerPMRorMLC",label:"Age/DOB as per PMR (death cases) / MLC (injury cases)"},
+    {key:"ageAsPerAadhar",label:"Age/DOB as per Aadhar / other ID proof"},
+    {key:"address",label:"Address"},
+    {key:"occupation",label:"Occupation"},
+    {key:"maritalStatus",label:"Marital status"},
+    {key:"income",label:"Income claimed & proof (petition figure vs private statement; salary register/wage slips if employed)",area:true},
+    {key:"dependents",label:"Dependents (Death cases) — name, age, relation",area:true},
+  ], analysisHint:`Carefully compare the age/DOB values given for Petition, FIR, PMR-or-MLC, and Aadhar/ID proof — these frequently differ by a few years across documents in real cases, and any such mismatch should be captured precisely (e.g. "58 as per Petition, 59 as per FIR, 52 as per PMR, 59 as per Aadhar") rather than averaged or silently resolved; this will be used to flag a discrepancy in the final report. Likewise, if the income figure in the petition differs from a private statement or verified salary/wage figure, record both values rather than picking one.` },
+  { key:"mlcMedical", title:"MLC & Medical / Injury Details", fields:[
+    {key:"hospital",label:"Hospital(s) name"},
+    {key:"admissionDate",label:"Date of admission"},
+    {key:"dischargeDate",label:"Date of discharge"},
+    {key:"natureOfInjuries",label:"Nature of injuries as per MLC",area:true},
+    {key:"narrative",label:"Other MLC / medical findings (paste text)",area:true},
+  ]},
+  { key:"statement161", title:"161 Eyewitness Statements", fields:[
+    {key:"witnesses",label:"Witness name(s), relation & role (eyewitness / arrived after / IV driver)"},
+    {key:"witnessAnalysis",label:"Cross-check: who saw the accident happen vs arrived afterward",area:true},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+  ], analysisHint:`These statements typically include a mix of: (a) genuine eyewitnesses who directly saw the accident occur, (b) people who arrived at the scene only after it happened, and (c) the Insured Vehicle (IV) driver's own statement. For the "witnessAnalysis" field specifically: go through each statement and classify each person based ONLY on what they explicitly say about their presence/timing — e.g. "saw the truck hit the bike" implies direct eyewitness; "heard a noise and came running" or "reached the spot after" implies arrived afterward. Then summarize clearly, e.g. "4 witnesses (name1, name2, name3, name4) directly saw the accident occur; 2 witnesses (name5, name6) arrived at the scene afterward; [name]'s statement is the IV driver's own account." If a statement doesn't clearly say which, note it as unclear rather than guessing.` },
+  { key:"chargesheet", title:"Chargesheet Details", fields:[
+    {key:"status",label:"Status — filed / pending / not available"},
+    {key:"chargesheetedDriver",label:"Driver/vehicle chargesheeted against"},
+    {key:"sections",label:"Sections applied — BNS & MV Act"},
+    {key:"narrative",label:"Other chargesheet details (paste text)",area:true},
+  ]},
+  { key:"otherPolicePapers", title:"Other Police Papers", fields:[
+    {key:"narrative",label:"Arrest memo, RTI/appeal status, other papers (paste text)",area:true},
+  ]},
+  { key:"ivDriver", title:"IV Driver Details", fields:[
+    {key:"name",label:"Name, father's name & address"},
+    {key:"dlNo",label:"DL no., issue date, validity, RTO, class"},
+    {key:"narrative",label:"Other driver details / statement (paste text)",area:true},
+  ]},
+  { key:"vehicleRC", title:"Vehicle RC Details", fields:[
+    {key:"regNo",label:"Registration no., owner name & address"},
+    {key:"narrative",label:"Other RC details (paste text)",area:true},
+  ]},
+  { key:"permit", title:"Vehicle Permit Details", fields:[
+    {key:"permitNo",label:"Permit no., type & validity"},
+    {key:"route",label:"Route authorized"},
+    {key:"narrative",label:"Other permit details (paste text)",area:true},
+  ]},
+  { key:"fitness", title:"Vehicle Fitness Details", fields:[
+    {key:"validity",label:"Fitness certificate validity (from–to)"},
+    {key:"narrative",label:"Other fitness details (paste text)",area:true},
+  ]},
+  { key:"policy", title:"Insurance Policy Details", fields:[
+    {key:"policyNo",label:"Policy no., period & insurer"},
+    {key:"conditions",label:"Key policy conditions"},
+    {key:"narrative",label:"Other policy details (paste text)",area:true},
+  ]},
+];
+
+const initialDocCategories = () => {
+  const obj = {};
+  DOC_CATEGORIES.forEach((cat) => { obj[cat.key] = { include: false, values: {} }; });
+  return obj;
+};
+
+// ── API Key Setup Component ──
+function ApiKeySetup({ onSave }) {
+  const [key, setKey] = useState('');
+  const saved = localStorage.getItem('ki_anthropic_key');
+  if (saved) { setTimeout(() => onSave(saved), 0); return null; }
+  return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'70vh',padding:40}}>
+      <div style={{background:'#fff',border:'1px solid #E3DDD0',borderRadius:12,padding:36,maxWidth:480,width:'100%',textAlign:'center'}}>
+        <Icon.Key size={32} color="#1B2A4A" style={{margin:'0 auto 12px'}} />
+        <h2 style={{fontFamily:'Lora',fontSize:20,fontWeight:600,color:'#1B2A4A',marginBottom:8}}>API Key Required</h2>
+        <p style={{fontSize:13,color:'#857F6E',marginBottom:20,lineHeight:1.6}}>
+          This tool uses Claude AI to read documents and generate reports. Enter your Anthropic API key to get started. The key is stored only in your browser.
+        </p>
+        <input
+          type="password"
+          value={key}
+          onChange={e=>setKey(e.target.value)}
+          placeholder="sk-ant-api03-..."
+          style={{width:'100%',border:'1px solid #D8D2C4',borderRadius:6,padding:'10px 14px',fontSize:13,marginBottom:14,fontFamily:'monospace'}}
+        />
+        <button
+          onClick={()=>{ if(key.trim()){localStorage.setItem('ki_anthropic_key',key.trim());onSave(key.trim());} }}
+          disabled={!key.trim()}
+          style={{width:'100%',background:key.trim()?'#1B2A4A':'#A6A595',color:'#FAF8F4',border:'none',borderRadius:6,padding:'11px 20px',fontWeight:600,fontSize:13,cursor:key.trim()?'pointer':'not-allowed'}}
+        >Save & Continue</button>
+        <p style={{fontSize:11,color:'#A6A595',marginTop:12}}>
+          Get an API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:'#1B2A4A',textDecoration:'underline'}}>console.anthropic.com</a>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Report Tool ──
+function InvestigationReportTool({ apiKey }) {
+  const [caseData, setCaseData] = useState(initialCase);
+  const [docCategories, setDocCategories] = useState(initialDocCategories());
+  const [extraNotes, setExtraNotes] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState(null);
+  const [openSections, setOpenSections] = useState({ case: true, docs: true });
+  const [expandedDocs, setExpandedDocs] = useState({});
+  const [showSettings, setShowSettings] = useState(false);
+
+  const updateCase = (field, value) => setCaseData((c) => ({ ...c, [field]: value }));
+  const toggleDocInclude = (catKey) => setDocCategories((d) => ({...d,[catKey]:{...d[catKey],include:!d[catKey].include}}));
+  const updateDocField = (catKey, fieldKey, value) => setDocCategories((d) => ({...d,[catKey]:{...d[catKey],values:{...d[catKey].values,[fieldKey]:value}}}));
+  const toggleExpanded = (catKey) => setExpandedDocs((e) => ({ ...e, [catKey]: !e[catKey] }));
+  const toggleSection = (key) => setOpenSections((s) => ({ ...s, [key]: !s[key] }));
+
+  const [autoFilling, setAutoFilling] = useState({});
+  const [autoFillError, setAutoFillError] = useState({});
+  const [autoUpdating, setAutoUpdating] = useState(false);
+  const [userEditedReport, setUserEditedReport] = useState(false);
+  const [queueStatus, setQueueStatus] = useState(null);
+  const debounceRef = useRef(null);
+  const lastSnapshotRef = useRef("");
+
+  const aiQueueRef = useRef(Promise.resolve());
+  const runQueued = (fn) => {
+    const run = async () => { try { return await fn(); } finally { setQueueStatus(null); } };
+    const queued = aiQueueRef.current.then(run, run);
+    aiQueueRef.current = queued.catch(() => {});
+    return queued;
+  };
+
+  const fetchAnthropicWithRetry = async (body, { maxRetries = 4 } = {}) => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify(body),
+      });
+      if (response.status === 401) {
+        localStorage.removeItem('ki_anthropic_key');
+        throw new Error("Invalid API key. Page will reload — please enter a valid key.");
+      }
+      if ((response.status === 429 || response.status === 529 || response.status === 503) && attempt < maxRetries) {
+        const retryAfterHeader = parseFloat(response.headers.get("retry-after"));
+        const wait = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : Math.min(2000 * Math.pow(2, attempt), 16000);
+        setQueueStatus(`Server busy, retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      return response;
+    }
+  };
+
+  const describeFailedResponse = async (response) => {
+    const errBody = await response.text().catch(() => "");
+    if (/^\s*<!doctype html/i.test(errBody) || /^\s*<html/i.test(errBody))
+      return `Request failed (${response.status}) — upload may be too large. Try fewer pages/files.`;
+    return `API error ${response.status}: ${errBody.slice(0, 200) || "no details"}`;
+  };
+
+  const mergeFieldValues = (oldValues, newValues) => {
+    const merged = { ...oldValues };
+    for (const [key, rawNewVal] of Object.entries(newValues || {})) {
+      const newVal = (rawNewVal || "").toString().trim();
+      const oldVal = (oldValues?.[key] || "").toString().trim();
+      if (!newVal) continue;
+      if (!oldVal) { merged[key] = newVal; }
+      else if (oldVal === newVal || oldVal.includes(newVal)) { merged[key] = oldVal; }
+      else { merged[key] = `${oldVal}\n\n${newVal}`; }
+    }
+    return merged;
+  };
+
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const pdfjsRef = useRef(null);
+  const loadPdfJs = async () => {
+    if (pdfjsRef.current) return pdfjsRef.current;
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Could not load PDF reader library"));
+        document.head.appendChild(script);
+      });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+    pdfjsRef.current = window.pdfjsLib;
+    return window.pdfjsLib;
+  };
+
+  const pdfFileToImages = async (file) => {
+    const pdfjsLib = await loadPdfJs();
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const images = [];
+    const maxPages = Math.min(pdf.numPages, 20);
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.3 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+      images.push({ mediaType: "image/jpeg", data: dataUrl.split(",")[1] });
+    }
+    return images;
+  };
+
+  const mammothRef = useRef(null);
+  const loadMammoth = async () => {
+    if (mammothRef.current) return mammothRef.current;
+    if (!window.mammoth) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.7.2/mammoth.browser.min.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Could not load Word document reader library"));
+        document.head.appendChild(script);
+      });
+    }
+    mammothRef.current = window.mammoth;
+    return window.mammoth;
+  };
+
+  const docxFileToText = async (file) => {
+    const mammoth = await loadMammoth();
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value || "";
+  };
+
+  const fileToOptimizedBase64 = async (file) => {
+    const MAX_DIMENSION = 1300;
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = dataUrl;
+    });
+    let { width, height } = img;
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+      const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+      width = Math.round(width * ratio); height = Math.round(height * ratio);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, width, height);
+    const resizedDataUrl = canvas.toDataURL("image/jpeg", 0.72);
+    return { mediaType: "image/jpeg", data: resizedDataUrl.split(",")[1] };
+  };
+
+  const handleAutoFill = async (cat, files) => {
+    if (!files || files.length === 0) return;
+    setAutoFilling((s) => ({ ...s, [cat.key]: true }));
+    setAutoFillError((s) => ({ ...s, [cat.key]: null }));
+    try {
+      const imagesPayload = []; const docxTexts = [];
+      for (const file of Array.from(files)) {
+        const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.toLowerCase().endsWith(".docx");
+        if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          const pdfImages = await pdfFileToImages(file); imagesPayload.push(...pdfImages);
+        } else if (isDocx) {
+          const text = await docxFileToText(file);
+          if (text.trim()) docxTexts.push(`--- ${file.name} ---\n${text.trim()}`);
+        } else if (file.type.startsWith("image/")) {
+          const optimized = await fileToOptimizedBase64(file); imagesPayload.push(optimized);
+        } else { throw new Error(`"${file.name}" isn't supported. Upload JPG/PNG/PDF/DOCX.`); }
+      }
+      if (imagesPayload.length > 20) throw new Error("Upload at most 20 pages/files at a time.");
+      const approxTotalKB = imagesPayload.reduce((sum, img) => sum + img.data.length * 0.75, 0) / 1024;
+      if (approxTotalKB > 18000) throw new Error(`Files too large (~${Math.round(approxTotalKB / 1024)}MB). Try fewer pages.`);
+
+      const imageBlocks = imagesPayload.map((img) => ({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.data}}));
+      const fieldList = cat.fields.map((f) => `"${f.key}": "${f.label}"`).join(", ");
+      const docxTextBlock = docxTexts.length ? `\n\nADDITIONAL TEXT FROM UPLOADED WORD DOCUMENT(S):\n${docxTexts.join("\n\n")}` : "";
+      const analysisHintBlock = cat.analysisHint ? `\n\nSPECIAL INSTRUCTIONS FOR THIS CATEGORY:\n${cat.analysisHint}` : "";
+
+      const promptText = `You are reading scanned insurance investigation document page(s) and/or Word document text (FIR / panchnama / postmortem / statement / vehicle document etc.) for the category "${cat.title}". Multiple images may represent multiple pages of the same document, or multiple separate documents of the same category — read all of them together as one source, along with any Word document text provided below. The text may be in any major Indian language — Hindi, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Bengali, Punjabi, Odia, Assamese, Urdu — or English, or a mix of these.
+
+Read the image(s) and text carefully, identify the language(s) used, and extract the following fields, translating everything into English:
+{ ${fieldList} }
+${analysisHintBlock}
+
+Rules:
+- Return ONLY a JSON object with exactly these keys, nothing else (no markdown fences, no preamble).
+- For each field, put the relevant extracted/translated information as a string.
+- If a field's information is not visible or not present anywhere, set it to an empty string "" — do NOT guess.
+- For narrative/long text fields, summarize in formal English, faithful to the source.
+- If images are unreadable or blank and no text is provided, return all fields as empty strings.${docxTextBlock}`;
+
+      const response = await runQueued(() => fetchAnthropicWithRetry({
+        model: "claude-sonnet-4-6", max_tokens: 6144,
+        messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
+      }));
+      if (!response.ok) throw new Error(await describeFailedResponse(response));
+      const data = await response.json();
+      if (!data.content) throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 200)}`);
+      if (data.stop_reason === "max_tokens") throw new Error("Content too long — try uploading fewer pages at once.");
+      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+
+      setDocCategories((d) => ({...d,[cat.key]:{include:true,values:mergeFieldValues(d[cat.key].values,parsed)}}));
+      setExpandedDocs((e) => ({ ...e, [cat.key]: true }));
+    } catch (e) {
+      setAutoFillError((s) => ({ ...s, [cat.key]: e.message || "Could not read document." }));
+    } finally { setAutoFilling((s) => ({ ...s, [cat.key]: false })); }
+  };
+
+  const [headerAutoFilling, setHeaderAutoFilling] = useState(false);
+  const [headerAutoFillError, setHeaderAutoFillError] = useState(null);
+
+  const handleHeaderAutoFill = async (files) => {
+    if (!files || files.length === 0) return;
+    setHeaderAutoFilling(true); setHeaderAutoFillError(null);
+    try {
+      const imagesPayload = []; const docxTexts = [];
+      for (const file of Array.from(files)) {
+        const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.toLowerCase().endsWith(".docx");
+        if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          imagesPayload.push(...(await pdfFileToImages(file)));
+        } else if (isDocx) {
+          const text = await docxFileToText(file);
+          if (text.trim()) docxTexts.push(`--- ${file.name} ---\n${text.trim()}`);
+        } else if (file.type.startsWith("image/")) {
+          imagesPayload.push(await fileToOptimizedBase64(file));
+        } else { throw new Error(`"${file.name}" isn't supported.`); }
+      }
+      if (imagesPayload.length > 20) throw new Error("Upload at most 20 pages at a time.");
+      const imageBlocks = imagesPayload.map((img) => ({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.data}}));
+      const docxTextBlock = docxTexts.length ? `\n\nADDITIONAL TEXT FROM UPLOADED WORD DOCUMENT(S):\n${docxTexts.join("\n\n")}` : "";
+
+      const promptText = `You are reading insurance claim document(s) — could be a claim intimation letter, policy copy, RC, petition, or FIR — possibly in any major Indian language or English. Extract the following case-level fields, translating into English:
+{
+  "claimType": "one of exactly: 'MACT Death Claim', 'MACT Injury Claim', 'TPPD Claim'. Empty string if unclear.",
+  "claimNo": "MACT/claim number",
+  "court": "court / jurisdiction",
+  "claimAmount": "claim amount as stated",
+  "doa": "date of accident",
+  "ivVehicle": "insured vehicle type, number and registration",
+  "insured": "name of the insured",
+  "policyNo": "policy number",
+  "policyPeriod": "policy period (from-to dates)"
+}
+Rules:
+- Return ONLY this JSON object.
+- If a field isn't visible, set it to "" — do NOT guess.
+- Keep values concise.${docxTextBlock}`;
+
+      const response = await runQueued(() => fetchAnthropicWithRetry({
+        model: "claude-sonnet-4-6", max_tokens: 1024,
+        messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
+      }));
+      if (!response.ok) throw new Error(await describeFailedResponse(response));
+      const data = await response.json();
+      if (!data.content) throw new Error("Unexpected response");
+      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+
+      setCaseData((c) => {
+        const updated = { ...c };
+        for (const [key, val] of Object.entries(parsed || {})) {
+          const trimmed = (val || "").toString().trim();
+          if (!trimmed) continue;
+          if (key === "claimType") {
+            if (["MACT Death Claim","MACT Injury Claim","TPPD Claim"].includes(trimmed)) updated.claimType = trimmed;
+          } else if (key in updated) { updated[key] = trimmed; }
+        }
+        return updated;
+      });
+    } catch (e) { setHeaderAutoFillError(e.message || "Could not read document."); }
+    finally { setHeaderAutoFilling(false); }
+  };
+
+  const buildPrompt = () => {
+    const includedCats = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include);
+    const docsText = includedCats.map((cat) => {
+      const vals = docCategories[cat.key].values;
+      const fieldLines = cat.fields.map((f) => (vals[f.key]?.trim() ? `${f.label}: ${vals[f.key].trim()}` : null)).filter(Boolean).join("\n");
+      return fieldLines ? `--- ${cat.title} ---\n${fieldLines}` : null;
+    }).filter(Boolean).join("\n\n");
+    const sectionKeys = includedCats.map((c) => c.key).join(", ");
+
+    return `You are an expert insurance investigation report writer in India, trained on MACT (Motor Accident Claims Tribunal) and general insurance claim investigation conventions. You write in formal Indian investigation-report English, matching the register used by professional investigators reporting to insurance companies (third person, factual, dense — e.g. "He has confirmed...", "As per him...", "FIR has been done on the same day...").
+
+You will be given case header facts and a set of structured source-document inputs (FIR, panchnamas, postmortem, MLC, statements, chargesheet, vehicle/driver/policy documents). Some of these may include text in any major Indian language to translate and synthesize into English.
+
+CRITICAL RULE ON MISSING INFORMATION: If a document category's fields are empty or say something is unavailable/pending, do NOT invent or assume a status. Write exactly what was provided.
+
+This report has a specific structure:
+1. Each item in "sections" is a SHORT, FACTUAL BRIEF of that one specific document/category only — 1-3 sentences, no cross-referencing and no analysis.
+2. "findings" is a bullet-style list of concrete established facts across ALL documents combined.
+3. "observations" is the detailed narrative synthesis in formal MACT report style, weaving together all document briefs chronologically.
+4. "conclusion" is the final 2-4 sentence closing assessment.
+
+Produce a JSON object (nothing else) with this shape:
+{
+  "sections": {
+    ${sectionKeys ? sectionKeys.split(", ").map(k => `"${k}": "SHORT factual brief (1-3 sentences)"`).join(",\n    ") : '"none": "no categories selected"'}
+  },
+  "redFlags": [
+    {"flag": "title", "detail": "1-2 sentence explanation", "severity": "high|medium|low"}
+  ],
+  "findings": "bullet-style list (\\n between items, prefix with '- ')",
+  "observations": "detailed narrative synthesis in formal MACT report style",
+  "conclusion": "2-4 sentences closing assessment"
+}
+
+Rules for redFlags: check for (1) age/DOB mismatches across documents (2) vehicle number mismatches (3) income discrepancies (4) missing documents (5) FIR delay (6) conflicting statements (7) pending chargesheet (8) policy validity gaps. Empty array if nothing found.
+
+CASE HEADER:
+Claim Type: ${caseData.claimType}
+Claim No: ${caseData.claimNo}
+Court: ${caseData.court}
+Claim Amount: ${caseData.claimAmount}
+Date of Accident: ${caseData.doa}
+Insured Vehicle: ${caseData.ivVehicle}
+Insured: ${caseData.insured}
+Policy No: ${caseData.policyNo} (${caseData.policyPeriod})
+
+SOURCE DOCUMENTS PROVIDED:
+${docsText || "(none selected/filled)"}
+
+INVESTIGATOR NOTES:
+${extraNotes || "(none)"}`;
+  };
+
+  const generateReport = async ({ silent = false } = {}) => {
+    if (silent) setAutoUpdating(true); else setGenerating(true);
+    setError(null);
+    try {
+      const response = await runQueued(() => fetchAnthropicWithRetry({
+        model: "claude-sonnet-4-6", max_tokens: 6000,
+        messages: [{ role: "user", content: buildPrompt() }],
+      }));
+      if (!response.ok) throw new Error(await describeFailedResponse(response));
+      const data = await response.json();
+      if (data.stop_reason === "max_tokens") throw new Error("Report too long — try regenerating.");
+      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      setReport(JSON.parse(text.replace(/```json|```/g, "").trim()));
+      setUserEditedReport(false);
+    } catch (e) {
+      if (!silent) setError(e.message || "Could not generate report.");
+    } finally { setGenerating(false); setAutoUpdating(false); }
+  };
+
+  const inputSnapshot = JSON.stringify({ caseData, docCategories, extraNotes });
+  useEffect(() => {
+    const anyIncluded = DOC_CATEGORIES.some((cat) => docCategories[cat.key]?.include);
+    const hasAnyValue = DOC_CATEGORIES.some((cat) => Object.values(docCategories[cat.key]?.values || {}).some((v) => (v || "").trim()));
+    if (!anyIncluded || !hasAnyValue) return;
+    if (userEditedReport) return;
+    if (inputSnapshot === lastSnapshotRef.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      lastSnapshotRef.current = inputSnapshot;
+      generateReport({ silent: true });
+    }, 1800);
+    return () => clearTimeout(debounceRef.current);
+  }, [inputSnapshot, userEditedReport]);
+
+  const updateReportField = (field, value) => { setUserEditedReport(true); setReport((r) => ({ ...r, [field]: value })); };
+  const updateReportSection = (catKey, value) => { setUserEditedReport(true); setReport((r) => ({ ...r, sections: { ...r.sections, [catKey]: value } })); };
+
+  const escapeHtml = (str) => (str || "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const triggerDownload = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  const downloadAsWord = () => {
+    if (!report) return;
+    const includedSections = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include && report.sections?.[cat.key]);
+    const sectionsHtml = includedSections.map((cat) => `<h3>${escapeHtml(cat.title)}</h3><p>${escapeHtml(report.sections[cat.key]).replace(/\n/g,"<br/>")}</p>`).join("");
+    const redFlagsHtml = report.redFlags && report.redFlags.length
+      ? `<ul>${report.redFlags.map((rf) => `<li><b>${escapeHtml(rf.flag)}</b> [${escapeHtml((rf.severity||"").toUpperCase())}] — ${escapeHtml(rf.detail)}</li>`).join("")}</ul>`
+      : `<p>No discrepancies flagged.</p>`;
+
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'><title>Investigation Report</title>
+<style>body{font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a}h1{font-size:16pt;border-bottom:2px solid #1B2A4A;padding-bottom:6px}h2{font-size:13pt;color:#1B2A4A;text-transform:uppercase;margin-top:22px}h3{font-size:12pt;color:#1B2A4A;margin-top:14px;margin-bottom:4px}p{line-height:1.5}table{border-collapse:collapse;width:100%;margin-bottom:10px}td,th{border:1px solid #ccc;padding:5px 9px;font-size:10.5pt}.meta{color:#555;font-size:10pt}</style></head>
+<body>
+  <h1>Investigation Report — Draft</h1>
+  <p class="meta">${escapeHtml(caseData.claimType)} ${caseData.claimNo ? "· #" + escapeHtml(caseData.claimNo) : ""}</p>
+  <table>
+    <tr><td><b>Claim No.</b></td><td>${escapeHtml(caseData.claimNo)}</td><td><b>Court</b></td><td>${escapeHtml(caseData.court)}</td></tr>
+    <tr><td><b>Claim Amount</b></td><td>${escapeHtml(caseData.claimAmount)}</td><td><b>Date of Accident</b></td><td>${escapeHtml(caseData.doa)}</td></tr>
+    <tr><td><b>Insured Vehicle</b></td><td>${escapeHtml(caseData.ivVehicle)}</td><td><b>Insured</b></td><td>${escapeHtml(caseData.insured)}</td></tr>
+    <tr><td><b>Policy No.</b></td><td colspan="3">${escapeHtml(caseData.policyNo)} (${escapeHtml(caseData.policyPeriod)})</td></tr>
+  </table>
+  <h2>Document-wise Briefs</h2>${sectionsHtml || "<p>No documents included.</p>"}
+  <h2>Red Flags</h2>${redFlagsHtml}
+  <h2>Findings</h2><p>${escapeHtml(report.findings).replace(/\n/g,"<br/>")}</p>
+  <h2>Observations</h2><p>${escapeHtml(report.observations).replace(/\n/g,"<br/>")}</p>
+  <h2>Conclusion</h2><p>${escapeHtml(report.conclusion).replace(/\n/g,"<br/>")}</p>
+  <p class="meta" style="margin-top:28px">AI-generated draft. Verify all content against source documents before issuing.</p>
+</body></html>`;
+    triggerDownload(new Blob(["﻿", html], { type: "application/msword" }), `Investigation_Report_${caseData.claimNo || "draft"}.doc`);
+  };
+
+  const downloadAsText = () => {
+    if (!report) return;
+    const lines = ["INVESTIGATION REPORT — DRAFT", `${caseData.claimType||""} ${caseData.claimNo?"#"+caseData.claimNo:""}`, "",
+      `Claim No.: ${caseData.claimNo||""}`, `Court: ${caseData.court||""}`, `Claim Amount: ${caseData.claimAmount||""}`,
+      `Date of Accident: ${caseData.doa||""}`, `Insured Vehicle: ${caseData.ivVehicle||""}`, `Insured: ${caseData.insured||""}`,
+      `Policy No.: ${caseData.policyNo||""} (${caseData.policyPeriod||""})`, "", "DOCUMENT-WISE BRIEFS", ""];
+    DOC_CATEGORIES.forEach((cat) => {
+      if (docCategories[cat.key]?.include && report.sections?.[cat.key]) {
+        lines.push(cat.title.toUpperCase(), report.sections[cat.key], "");
+      }
+    });
+    lines.push("RED FLAGS");
+    if (report.redFlags?.length) { report.redFlags.forEach((rf) => lines.push(`- [${(rf.severity||"").toUpperCase()}] ${rf.flag}: ${rf.detail}`)); }
+    else lines.push("No discrepancies flagged.");
+    lines.push("", "FINDINGS", report.findings||"", "", "OBSERVATIONS", report.observations||"", "", "CONCLUSION", report.conclusion||"", "",
+      "AI-generated draft. Verify all content against source documents.");
+    triggerDownload(new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" }), `Investigation_Report_${caseData.claimNo || "draft"}.txt`);
+  };
+
+  // Diagram
+  const [diagram, setDiagram] = useState(null);
+  const [diagramLoading, setDiagramLoading] = useState(false);
+  const [diagramError, setDiagramError] = useState(null);
+
+  const generateDiagram = async () => {
+    setDiagramLoading(true); setDiagramError(null);
+    try {
+      const firVals = docCategories.fir?.values || {};
+      const spotVals = docCategories.spotPanchnama?.values || {};
+      const accidentText = `Date of accident: ${caseData.doa}\nInsured vehicle (IV): ${caseData.ivVehicle}\nFIR narrative: ${firVals.narrative || "(not provided)"}\nFIR filed against: ${firVals.filedAgainst || "(not provided)"}\nSpot panchnama: ${spotVals.narrative || "(not provided)"}\nInvestigator notes: ${extraNotes || "(none)"}`;
+
+      const response = await runQueued(() => fetchAnthropicWithRetry({
+        model: "claude-sonnet-4-6", max_tokens: 1000,
+        messages: [{role:"user",content:`Based only on the accident facts below, produce a SIMPLE TOP-DOWN SCHEMATIC DIAGRAM as structured JSON. Return ONLY JSON in this shape:
+{
+  "roadDescription": "short road label",
+  "roadOrientation": "horizontal" or "vertical",
+  "vehicles": [{"label":"vehicle label","position":"number 0-100","lane":"near" or "far","direction":"left|right|up|down","role":"striking|struck|other"}],
+  "impactPoint": "number 0-100 or null",
+  "notes": "short factual caption, max 15 words",
+  "confidence": "high|medium|low"
+}
+
+ACCIDENT FACTS:\n${accidentText}`}],
+      }));
+      if (!response.ok) throw new Error(await describeFailedResponse(response));
+      const data = await response.json();
+      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      setDiagram(JSON.parse(text.replace(/```json|```/g, "").trim()));
+    } catch (e) { setDiagramError("Could not generate diagram. Add more detail to FIR/panchnama."); }
+    finally { setDiagramLoading(false); }
+  };
+
+  const severityColor = (sev) => sev === "high" ? "#A8362B" : sev === "medium" ? "#B8762E" : "#6B7280";
+
+  const clearApiKey = () => { localStorage.removeItem('ki_anthropic_key'); window.location.reload(); };
+
+  return (
+    <div style={{ fontFamily: "Inter, sans-serif", background: "#EFEAE0", minHeight: "calc(100vh - 56px)" }}>
+      <style>{`
+        * { box-sizing: border-box; }
+        .ir-input, .ir-textarea { width:100%;border:1px solid #D8D2C4;border-radius:4px;padding:8px 10px;font-family:'Inter',sans-serif;font-size:13px;background:#fff;color:#1B2A4A; }
+        .ir-textarea { resize:vertical;min-height:70px;line-height:1.5; }
+        .ir-input:focus, .ir-textarea:focus { outline:2px solid #1B2A4A;outline-offset:1px; }
+        .ir-label { font-size:11px;font-weight:600;color:#5A5546;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;display:block; }
+        .ir-btn-primary { background:#1B2A4A;color:#FAF8F4;border:none;border-radius:4px;padding:11px 20px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:8px; }
+        .ir-btn-primary:hover { background:#243a63; }
+        .ir-btn-primary:disabled { background:#A6A595;cursor:not-allowed; }
+        .ir-btn-ghost { background:transparent;border:1px solid #D8D2C4;border-radius:4px;padding:7px 12px;font-size:12px;font-weight:600;color:#1B2A4A;cursor:pointer;display:inline-flex;align-items:center;gap:6px; }
+        .ir-btn-ghost:hover { background:#fff; }
+      `}</style>
+
+      {/* Sub-header */}
+      <div style={{ background:"#1B2A4A",color:"#FAF8F4",padding:"14px 28px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <Icon.FileText size={20} />
+          <div>
+            <div style={{fontFamily:"Lora",fontSize:16,fontWeight:600}}>Investigation Report Drafter</div>
+            <div style={{fontSize:11,color:"#B9C2D6",marginTop:1}}>Case facts in → structured MACT/claim report out</div>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <button onClick={clearApiKey} style={{background:'none',border:'1px solid rgba(255,255,255,0.15)',borderRadius:4,padding:'5px 10px',color:'#9AA6C2',fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            <Icon.Settings size={12} /> Change API Key
+          </button>
+          <div style={{fontSize:11,color:"#9AA6C2",textAlign:"right",maxWidth:200}}>
+            AI-assisted draft. Verify every fact before issuing.
+          </div>
+        </div>
+      </div>
+
+      {queueStatus && (
+        <div style={{background:"#FFF4E0",borderBottom:"1px solid #E8D5A8",padding:"8px 28px",fontSize:12,color:"#8A5A1E",display:"flex",alignItems:"center",gap:8}}>
+          <Icon.Loader2 size={13} /> {queueStatus}
+        </div>
+      )}
+
+      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:0,alignItems:"start" }}>
+        {/* LEFT: INPUT */}
+        <div style={{padding:"24px 28px",maxWidth:640,margin:"0 auto",width:"100%"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <SectionHeader title="Case header" open={openSections.case} onToggle={()=>toggleSection("case")} />
+            <label className="ir-btn-ghost" style={{cursor:"pointer",fontSize:11,padding:"5px 9px",marginBottom:10}}>
+              {headerAutoFilling ? <Icon.Loader2 size={12} /> : <Icon.Upload size={12} />}
+              {headerAutoFilling ? "Reading…" : "Upload to auto-fill"}
+              <input type="file" accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{display:"none"}} disabled={headerAutoFilling} onChange={(e)=>handleHeaderAutoFill(e.target.files)} />
+            </label>
+          </div>
+          {headerAutoFillError && <div style={{margin:"0 0 10px",padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B",lineHeight:1.5}}>{headerAutoFillError}</div>}
+          {openSections.case && <div style={{fontSize:11,color:"#857F6E",marginBottom:8,marginTop:-6}}>Upload a claim intimation letter, policy copy, RC, petition, or FIR to auto-fill.</div>}
+          {openSections.case && (
+            <div style={{background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,padding:16,marginBottom:18,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <SelectField label="Claim type" value={caseData.claimType} onChange={(v)=>updateCase("claimType",v)} options={["MACT Death Claim","MACT Injury Claim","TPPD Claim"]} />
+              <Field label="Claim no." value={caseData.claimNo} onChange={(v)=>updateCase("claimNo",v)} />
+              <Field label="Court / jurisdiction" value={caseData.court} onChange={(v)=>updateCase("court",v)} />
+              <Field label="Claim amount" value={caseData.claimAmount} onChange={(v)=>updateCase("claimAmount",v)} />
+              <Field label="Date of accident" value={caseData.doa} onChange={(v)=>updateCase("doa",v)} />
+              <Field label="Insured vehicle no." value={caseData.ivVehicle} onChange={(v)=>updateCase("ivVehicle",v)} />
+              <Field label="Insured" value={caseData.insured} onChange={(v)=>updateCase("insured",v)} />
+              <Field label="Policy no. & period" value={caseData.policyNo} onChange={(v)=>updateCase("policyNo",v)} />
+            </div>
+          )}
+
+          <SectionHeader title="Source documents & statements" open={openSections.docs} onToggle={()=>toggleSection("docs")} />
+          {openSections.docs && (
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11.5,color:"#857F6E",marginBottom:10,lineHeight:1.5}}>
+                Tick a document and either fill manually or use "Upload to auto-fill" with JPG/PNG/PDF/Word files — up to 20 pages per upload. Supports Hindi, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Bengali, Punjabi, Odia, Assamese, Urdu and English.
+              </div>
+              {DOC_CATEGORIES.map((cat) => {
+                const state = docCategories[cat.key];
+                const isOpen = !!expandedDocs[cat.key];
+                return (
+                  <div key={cat.key} style={{background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,marginBottom:8,overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer"}} onClick={()=>toggleExpanded(cat.key)}>
+                      <input type="checkbox" checked={state.include} onChange={(e)=>{e.stopPropagation();toggleDocInclude(cat.key);if(!state.include)setExpandedDocs((ex)=>({...ex,[cat.key]:true}));}} onClick={(e)=>e.stopPropagation()} style={{width:15,height:15,accentColor:"#1B2A4A"}} />
+                      <span style={{fontFamily:"Inter",fontWeight:600,fontSize:13,color:state.include?"#1B2A4A":"#A6A595",flex:1}}>{cat.title}</span>
+                      <label className="ir-btn-ghost" style={{cursor:"pointer",fontSize:11,padding:"5px 9px"}} onClick={(e)=>e.stopPropagation()}>
+                        {autoFilling[cat.key] ? <Icon.Loader2 size={12} /> : <Icon.Upload size={12} />}
+                        {autoFilling[cat.key] ? "Reading…" : "Upload to auto-fill"}
+                        <input type="file" accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{display:"none"}} disabled={autoFilling[cat.key]} onChange={(e)=>handleAutoFill(cat,e.target.files)} />
+                      </label>
+                      {isOpen ? <Icon.ChevronDown size={14} color="#A6A595" /> : <Icon.ChevronRight size={14} color="#A6A595" />}
+                    </div>
+                    {autoFillError[cat.key] && <div style={{margin:"0 14px 10px",padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B",lineHeight:1.5}}>{autoFillError[cat.key]}</div>}
+                    {isOpen && (
+                      <div style={{padding:"4px 14px 14px",display:"grid",gap:10}}>
+                        {cat.fields.map((f) => {
+                          const hasValue = !!(state.values[f.key] || "").trim();
+                          return (
+                            <div key={f.key}>
+                              <span className="ir-label" style={{display:"flex",alignItems:"center",gap:5}}>
+                                {f.label}
+                                {hasValue && <Icon.Sparkles size={11} color="#B8762E" style={{display:"inline",verticalAlign:"middle"}} />}
+                              </span>
+                              {f.area ? (
+                                <textarea className="ir-textarea" value={state.values[f.key]||""} onChange={(e)=>updateDocField(cat.key,f.key,e.target.value)} />
+                              ) : (
+                                <input className="ir-input" value={state.values[f.key]||""} onChange={(e)=>updateDocField(cat.key,f.key,e.target.value)} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="ir-label">Investigator field notes (optional)</div>
+          <textarea className="ir-textarea" style={{minHeight:90,marginBottom:18}} placeholder="Anything from your own field visits not captured above…" value={extraNotes} onChange={(e)=>setExtraNotes(e.target.value)} />
+
+          <button className="ir-btn-primary" onClick={()=>generateReport()} disabled={generating} style={{width:"100%",justifyContent:"center"}}>
+            {generating ? <Icon.Loader2 size={16} /> : <Icon.FileText size={16} />}
+            {generating ? "Drafting report…" : report ? "Regenerate full report" : "Generate report draft"}
+          </button>
+          <div style={{fontSize:11,color:"#A6A595",marginTop:6}}>
+            Report auto-updates ~2s after changes unless you've edited the draft manually.
+          </div>
+          {error && <div style={{marginTop:12,padding:10,background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:12.5,color:"#A8362B"}}>{error}</div>}
+        </div>
+
+        {/* RIGHT: REPORT PREVIEW */}
+        <div style={{background:"#FAF8F4",minHeight:"calc(100vh - 120px)",borderLeft:"1px solid #E3DDD0",padding:"24px 28px"}}>
+          <div style={{maxWidth:640,margin:"0 auto"}}>
+            {!report && !generating && (
+              <div style={{textAlign:"center",padding:"80px 20px",color:"#A6A595"}}>
+                <Icon.FileText size={32} style={{marginBottom:10,opacity:0.5}} />
+                <div style={{fontFamily:"Lora",fontSize:14.5}}>Fill in a document on the left and the draft report will appear here automatically.</div>
+              </div>
+            )}
+            {generating && (
+              <div style={{textAlign:"center",padding:"80px 20px",color:"#5A5546"}}>
+                <Icon.Loader2 size={26} style={{marginBottom:10}} />
+                <div style={{fontFamily:"Lora",fontSize:14}}>Synthesizing statements and drafting sections…</div>
+              </div>
+            )}
+            {report && (
+              <div style={{background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,padding:"28px 30px",fontFamily:"Lora"}}>
+                <div style={{borderBottom:"2px solid #1B2A4A",paddingBottom:12,marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{fontSize:11,fontFamily:"Inter",fontWeight:700,letterSpacing:"0.06em",color:"#1B2A4A",textTransform:"uppercase"}}>Investigation Report — Draft</div>
+                    <div style={{fontSize:12,color:"#857F6E",marginTop:2,fontFamily:"Inter"}}>{caseData.claimType||"Claim type not set"} {caseData.claimNo && `· #${caseData.claimNo}`}</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+                    {autoUpdating && <div style={{fontSize:10.5,fontFamily:"Inter",color:"#B8762E",display:"flex",alignItems:"center",gap:5}}><Icon.Loader2 size={11} /> Updating…</div>}
+                    <div style={{display:"flex",gap:6}}>
+                      <button className="ir-btn-ghost" onClick={downloadAsWord}><Icon.FileText size={12} /> Word</button>
+                      <button className="ir-btn-ghost" onClick={downloadAsText}><Icon.FileText size={12} /> Text</button>
+                    </div>
+                  </div>
+                </div>
+
+                {DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include && report.sections?.[cat.key]).length > 0 && (
+                  <div style={{marginBottom:4}}>
+                    <div style={{fontFamily:"Inter",fontSize:11.5,fontWeight:700,letterSpacing:"0.04em",color:"#1B2A4A",textTransform:"uppercase",marginBottom:10}}>Document-wise Briefs</div>
+                    {DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include && report.sections?.[cat.key]).map((cat) => (
+                      <EditableSection key={cat.key} title={cat.title} text={report.sections[cat.key]} onChange={(v)=>updateReportSection(cat.key,v)} />
+                    ))}
+                  </div>
+                )}
+
+                {(diagram || diagramLoading || diagramError) && <AccidentDiagram diagram={diagram} loading={diagramLoading} error={diagramError} />}
+                <div style={{marginBottom:18}}>
+                  <button className="ir-btn-ghost" onClick={generateDiagram} disabled={diagramLoading}>
+                    {diagramLoading ? <Icon.Loader2 size={13} /> : <Icon.Sparkles size={13} />}
+                    {diagram ? "Regenerate accident schematic" : "Generate accident schematic"}
+                  </button>
+                </div>
+
+                {report.redFlags?.length > 0 && (
+                  <div style={{marginBottom:20,paddingTop:4,borderTop:"1px solid #E3DDD0"}}>
+                    <div style={{fontFamily:"Inter",fontSize:11.5,fontWeight:700,letterSpacing:"0.04em",color:"#1B2A4A",textTransform:"uppercase",marginBottom:8,marginTop:14,display:"flex",alignItems:"center",gap:6}}>
+                      <Icon.AlertTriangle size={13} color="#A8362B" /> Red Flags ({report.redFlags.length})
+                    </div>
+                    {report.redFlags.map((rf, i) => (
+                      <div key={i} style={{borderLeft:`3px solid ${severityColor(rf.severity)}`,paddingLeft:10,marginBottom:8}}>
+                        <div style={{fontFamily:"Inter",fontSize:12.5,fontWeight:600,color:"#1B2A4A"}}>
+                          {rf.flag} <span style={{fontSize:10,fontWeight:700,color:severityColor(rf.severity),textTransform:"uppercase",marginLeft:4}}>{rf.severity}</span>
+                        </div>
+                        <div style={{fontSize:13,color:"#3A3528",lineHeight:1.5}}>{rf.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {report.redFlags?.length === 0 && (
+                  <div style={{marginBottom:20,paddingTop:14,borderTop:"1px solid #E3DDD0",fontSize:12.5,fontFamily:"Inter",color:"#5A8266"}}>
+                    No discrepancies flagged from the provided documents.
+                  </div>
+                )}
+
+                <div style={{paddingTop:4,borderTop:"2px solid #1B2A4A",marginTop:6}}>
+                  <div style={{fontFamily:"Inter",fontSize:10,fontWeight:700,letterSpacing:"0.06em",color:"#857F6E",textTransform:"uppercase",marginTop:14,marginBottom:14}}>Synthesis — all documents combined</div>
+                  <EditableSection title="Findings" text={report.findings} onChange={(v)=>updateReportField("findings",v)} />
+                  <EditableSection title="Observations" text={report.observations} onChange={(v)=>updateReportField("observations",v)} />
+                  <EditableSection title="Conclusion" text={report.conclusion} onChange={(v)=>updateReportField("conclusion",v)} />
+                </div>
+                <div style={{fontSize:10.5,fontFamily:"Inter",color:"#A6A595",marginTop:24,paddingTop:12,borderTop:"1px solid #E3DDD0",lineHeight:1.5}}>
+                  AI-generated draft — editable above. Verify all translated content and conclusions against source documents before issuing.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ title, open, onToggle }) {
+  return (
+    <button onClick={onToggle} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",padding:"4px 0",marginBottom:10,width:"100%"}}>
+      {open ? <Icon.ChevronDown size={15} color="#1B2A4A" /> : <Icon.ChevronRight size={15} color="#1B2A4A" />}
+      <span style={{fontFamily:"Inter",fontWeight:700,fontSize:13,color:"#1B2A4A",letterSpacing:"0.01em"}}>{title}</span>
+    </button>
+  );
+}
+
+function Field({ label, value, onChange }) {
+  return (<div><span className="ir-label">{label}</span><input className="ir-input" value={value} onChange={(e)=>onChange(e.target.value)} /></div>);
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (<div><span className="ir-label">{label}</span><select className="ir-input" value={value} onChange={(e)=>onChange(e.target.value)} style={{cursor:"pointer"}}>{options.map((opt)=><option key={opt} value={opt}>{opt}</option>)}</select></div>);
+}
+
+function EditableSection({ title, text, onChange }) {
+  const [focused, setFocused] = useState(false);
+  if (!text && !focused) return null;
+  return (
+    <div style={{marginBottom:18}}>
+      <div style={{fontFamily:"Inter",fontSize:11.5,fontWeight:700,letterSpacing:"0.04em",color:"#1B2A4A",textTransform:"uppercase",marginBottom:6}}>{title}</div>
+      <textarea value={text||""} onChange={(e)=>onChange(e.target.value)} onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+        style={{width:"100%",fontFamily:"Lora",fontSize:14,lineHeight:1.65,color:"#2A2618",border:focused?"1px solid #1B2A4A":"1px solid transparent",borderRadius:4,padding:"4px 6px",margin:"-4px -6px",resize:"vertical",minHeight:60,background:focused?"#FAF8F4":"transparent"}}
+      />
+    </div>
+  );
+}
+
+function AccidentDiagram({ diagram, loading, error }) {
+  if (loading) return <div style={{marginBottom:18,textAlign:"center",padding:"30px 0",color:"#5A5546",fontFamily:"Inter",fontSize:12.5,background:"#F4F1EA",border:"1px solid #E3DDD0",borderRadius:6}}><Icon.Loader2 size={18} style={{marginBottom:6}} /><div>Building schematic…</div></div>;
+  if (error) return <div style={{marginBottom:18,padding:12,background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:6,fontSize:12.5,fontFamily:"Inter",color:"#A8362B"}}>{error}</div>;
+  if (!diagram) return null;
+  const W = 560, H = 220;
+  const roadStart = 40, roadEnd = W - 40;
+  const posToX = (p) => roadStart + (Math.min(100, Math.max(0, p)) / 100) * (roadEnd - roadStart);
+  const laneY = { near: H / 2 + 28, far: H / 2 - 28 };
+  const arrowFor = (dir) => dir === "left" ? "←" : dir === "right" ? "→" : dir === "up" ? "↑" : "↓";
+  return (
+    <div style={{marginBottom:18}}>
+      <div style={{fontFamily:"Inter",fontSize:11.5,fontWeight:700,letterSpacing:"0.04em",color:"#1B2A4A",textTransform:"uppercase",marginBottom:6}}>
+        Accident Schematic {diagram.confidence === "low" && <span style={{color:"#B8762E",fontWeight:600,fontSize:10}}>(LOW CONFIDENCE)</span>}
+      </div>
+      <div style={{background:"#F4F1EA",border:"1px solid #E3DDD0",borderRadius:6,padding:12}}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto"}}>
+          <rect x={roadStart} y={H/2-45} width={roadEnd-roadStart} height={90} fill="#DCD6C7" />
+          <line x1={roadStart} y1={H/2} x2={roadEnd} y2={H/2} stroke="#fff" strokeWidth="2" strokeDasharray="10,8" />
+          <text x={W/2} y={H/2-55} textAnchor="middle" fontFamily="Inter" fontSize="11" fontWeight="600" fill="#5A5546">{diagram.roadDescription||"Road"}</text>
+          {diagram.impactPoint != null && (<g><circle cx={posToX(diagram.impactPoint)} cy={H/2} r="6" fill="#A8362B" opacity="0.85" /><text x={posToX(diagram.impactPoint)} y={H/2+50} textAnchor="middle" fontFamily="Inter" fontSize="10" fontWeight="700" fill="#A8362B">IMPACT</text></g>)}
+          {(diagram.vehicles||[]).map((v, i) => {
+            const x = posToX(v.position ?? 50);
+            const y = laneY[v.lane] || H / 2;
+            const fill = v.role === "striking" ? "#1B2A4A" : v.role === "struck" ? "#A8362B" : "#5A5546";
+            return (<g key={i}><rect x={x-32} y={y-12} width="64" height="24" rx="4" fill={fill} /><text x={x} y={y+4} textAnchor="middle" fontFamily="Inter" fontSize="13" fontWeight="700" fill="#fff">{arrowFor(v.direction)}</text><text x={x} y={y+26} textAnchor="middle" fontFamily="Inter" fontSize="9.5" fill="#2A2618">{v.label}</text></g>);
+          })}
+        </svg>
+        {diagram.notes && <div style={{fontFamily:"Lora",fontSize:12.5,fontStyle:"italic",color:"#5A5546",marginTop:6,textAlign:"center"}}>{diagram.notes}</div>}
+      </div>
+      <div style={{fontSize:10.5,fontFamily:"Inter",color:"#A6A595",marginTop:6}}>Schematic from FIR/panchnama text — not a substitute for official spot panchnama.</div>
+    </div>
+  );
+}
+
+// ── App Wrapper ──
+function App() {
+  const [apiKey, setApiKey] = useState(localStorage.getItem('ki_anthropic_key') || '');
+  if (!apiKey) return <ApiKeySetup onSave={setApiKey} />;
+  return <InvestigationReportTool apiKey={apiKey} />;
+}
+
+// Mount React
+const root = ReactDOM.createRoot(document.getElementById('app-root'));
+root.render(<App />);
+}
+// Expose for auth script
+window.loadReportApp = loadReportApp;
+</script>
+</body></html>
