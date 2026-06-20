@@ -67,8 +67,7 @@ window.addEventListener('unhandledrejection', function(e){
 });
 </script>
 
-<script type="text/babel">
-/** @jsxRuntime classic */
+<script type="text/plain" id="jsx-source">
 const { useState, useRef, useEffect } = React;
 
 // ── Inline SVG Icons ──
@@ -982,5 +981,19 @@ function App() {
 // Mount React
 const root = ReactDOM.createRoot(document.getElementById('app-root'));
 root.render(<App />);
+</script>
+
+<script>
+// Manually transpile JSX and run — avoids cross-origin "Script error." from Babel standalone
+try {
+  var jsxCode = document.getElementById('jsx-source').textContent;
+  var result = Babel.transform(jsxCode, { presets: [['env', { modules: false }], ['react', { runtime: 'classic' }]] });
+  new Function(result.code)();
+} catch(e) {
+  var d = document.getElementById('app-root');
+  if(d) d.innerHTML = '<div style="padding:40px;color:red;font-size:14px;font-family:monospace;white-space:pre-wrap">Babel Error:\n' + e.message + '\n\n' + (e.stack||'') + '</div>';
+  document.getElementById('auth-loading').style.display='none';
+  d.style.display='block';
+}
 </script>
 </body></html>
