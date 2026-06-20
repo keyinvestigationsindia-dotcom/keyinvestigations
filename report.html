@@ -169,6 +169,59 @@ const DOC_CATEGORIES = [
     {key:"conditions",label:"Key policy conditions"},
     {key:"narrative",label:"Other policy details (paste text)",area:true},
   ]},
+  { key:"insuredStatement", title:"Insured Statement", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Insured not available / untraceable"]},
+    {key:"name",label:"Name & relation to claim"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
+  ], analysisHint:"In many cases the insured does not provide a written statement. If the status says 'Not provided' or similar, note it clearly in the brief — do not invent statement content." },
+  { key:"driverStatement", title:"Driver Statement (IV Driver)", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Driver absconding / untraceable"]},
+    {key:"name",label:"Driver name"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ], analysisHint:"If driver statement is not available, note the reason clearly. Do not fabricate statement content." },
+  { key:"claimantStatement", title:"Claimant Statement(s)", fields:[
+    {key:"status",label:"Statement status",options:["Recorded","Written statement obtained","Not provided","Refused to give statement","Claimant not available"]},
+    {key:"claimantNames",label:"Claimant name(s) & relation to deceased/injured"},
+    {key:"narrative",label:"Statement content summary (paste text)",area:true},
+    {key:"remarks",label:"Remarks (reason for non-availability, observations etc.)",area:true},
+  ], analysisHint:"In many cases claimants do not give written statements. If the status indicates not provided, record that clearly in the brief without inventing content." },
+  { key:"tpRiderDL", title:"TP Rider / Driver DL Details", fields:[
+    {key:"status",label:"DL status",options:["Available & valid","Available but expired","Available — class mismatch","Not available","Fake / suspicious","Not applicable"]},
+    {key:"dlNo",label:"DL no., issue date, validity, RTO, class"},
+    {key:"dlHolder",label:"DL holder name & address"},
+    {key:"vehicleClass",label:"Vehicle class authorized vs vehicle driven"},
+    {key:"narrative",label:"Other DL details (paste text)",area:true},
+    {key:"remarks",label:"Remarks (reason for DL non-availability, verification findings etc.)",area:true},
+  ], analysisHint:"In many cases the third-party rider/driver DL is not available for investigation. If DL is not available, clearly note the reason provided. If DL class does not match the vehicle driven, flag it as a red flag." },
+  { key:"dar", title:"DAR (Detailed Accident Report)", fields:[
+    {key:"reportNo",label:"DAR no. & date"},
+    {key:"issuedBy",label:"Issued by (police station / officer)"},
+    {key:"accidentDescription",label:"Accident description as per DAR",area:true},
+    {key:"vehiclesInvolved",label:"Vehicles involved & damage details"},
+    {key:"narrative",label:"Other DAR details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"mcr", title:"MCR (Motor Collision / Mechanical Inspection Report)", fields:[
+    {key:"reportNo",label:"MCR / inspection report no. & date"},
+    {key:"issuedBy",label:"Issued by (authority / inspector)"},
+    {key:"vehicleInspected",label:"Vehicle inspected (reg. no., make, model)"},
+    {key:"damageDescription",label:"Damage description & findings",area:true},
+    {key:"mechanicalDefect",label:"Any pre-existing mechanical defect found"},
+    {key:"narrative",label:"Other MCR / inspection details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"dischargeSummary", title:"Discharge Summary", fields:[
+    {key:"hospital",label:"Hospital name & address"},
+    {key:"admissionDate",label:"Date of admission"},
+    {key:"dischargeDate",label:"Date of discharge"},
+    {key:"diagnosis",label:"Diagnosis / reason for admission"},
+    {key:"treatment",label:"Treatment given / procedures performed",area:true},
+    {key:"conditionAtDischarge",label:"Condition at time of discharge"},
+    {key:"narrative",label:"Other discharge summary details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
 ];
 
 const initialDocCategories = () => {
@@ -791,7 +844,12 @@ ACCIDENT FACTS:\n${accidentText}`}],
                                 {f.label}
                                 {hasValue && <Icon.Sparkles size={11} color="#B8762E" style={{display:"inline",verticalAlign:"middle"}} />}
                               </span>
-                              {f.area ? (
+                              {f.options ? (
+                                <select className="ir-input" style={{cursor:"pointer"}} value={state.values[f.key]||""} onChange={(e)=>updateDocField(cat.key,f.key,e.target.value)}>
+                                  <option value="">— Select —</option>
+                                  {f.options.map((opt)=><option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                              ) : f.area ? (
                                 <textarea className="ir-textarea" value={state.values[f.key]||""} onChange={(e)=>updateDocField(cat.key,f.key,e.target.value)} />
                               ) : (
                                 <input className="ir-input" value={state.values[f.key]||""} onChange={(e)=>updateDocField(cat.key,f.key,e.target.value)} />
