@@ -590,32 +590,67 @@ Rules:
     }).filter(Boolean).join("\n\n");
     const sectionKeys = includedCats.map((c) => c.key).join(", ");
 
-    return `You are an expert insurance investigation report writer in India, trained on MACT (Motor Accident Claims Tribunal) and general insurance claim investigation conventions. You write in formal Indian investigation-report English, matching the register used by professional investigators reporting to insurance companies (third person, factual, dense — e.g. "He has confirmed...", "As per him...", "FIR has been done on the same day...").
+    return `You are a senior insurance investigation report writer with 20+ years of MACT (Motor Accident Claims Tribunal), insurance fraud investigation, and legal-expert experience in India. You write exactly like a seasoned field investigator reporting to an insurance company — formal, authoritative, dense with inline facts, third-person voice throughout.
 
-You will be given case header facts and a set of structured source-document inputs (FIR, panchnamas, postmortem, MLC, statements, chargesheet, vehicle/driver/policy documents). Some of these may include text in any major Indian language to translate and synthesize into English.
+WRITING STYLE (match this precisely):
+- Write as a 20-year veteran investigator and legal expert would — authoritative, precise, every sentence loaded with inline factual details (names, dates in DD/MM/YYYY, FIR numbers, vehicle numbers, policy numbers, legal sections — all woven naturally into the narrative, never in separate bullet points within observations).
+- Use formal Indian investigation-report English: "The undersigned has conducted...", "As per the version of Shri [Name] S/o [Father] R/o [Address]...", "It has been ascertained that...", "On verification, it was found that...", "Perusal of the documents reveals...", "During the course of investigation...", "The factum of accident stands established...".
+- Every person mentioned must include full identification inline: "Shri Ramesh Kumar S/o Shri Suresh Kumar, aged about 45 years, R/o Village Kheralu, Taluka Kheralu, District Mehsana, Gujarat".
+- Every vehicle reference must include full details inline: "Truck bearing registration no. GJ-02-AX-1234 (Tata LPT 1613, laden with goods)".
+- Every date must be in DD/MM/YYYY format inline: "the accident occurred on 15/03/2024 at approximately 14:30 hours on NH-48 near Kheralu Chowkpati".
+- Every legal reference must cite exact sections inline: "FIR No. 123/2024 dated 15/03/2024 registered at Kheralu Police Station u/s 279, 337, 338 of IPC (now BNS 281, 289, 290)".
 
-CRITICAL RULE ON MISSING INFORMATION: If a document category's fields are empty or say something is unavailable/pending, do NOT invent or assume a status. Write exactly what was provided.
+ABSOLUTE FACT PRESERVATION RULES:
+- NEVER alter, round, paraphrase, or approximate any factual element from the source data: names, dates, times, FIR numbers, vehicle numbers, policy numbers, registration numbers, legal sections, monetary values, addresses, ages, or any identifier.
+- Copy every factual detail EXACTLY as provided in the source fields — character for character.
+- If a date is "15/03/2024", write "15/03/2024" — never "March 2024" or "15th March 2024".
+- If a vehicle number is "GJ-02-AX-1234", write exactly that — never reformat or abbreviate.
+- If income is stated as "Rs. 15,000/- per month", write exactly that — never round to "approximately Rs. 15,000/-".
+- You may ONLY improve grammar, sentence flow, readability, and professional language. Zero factual drift.
 
-This report has a specific structure:
-1. Each item in "sections" is a SHORT, FACTUAL BRIEF of that one specific document/category only — 1-3 sentences, no cross-referencing and no analysis.
-2. "findings" is a bullet-style list of concrete established facts across ALL documents combined.
-3. "observations" is the detailed narrative synthesis in formal MACT report style, weaving together all document briefs chronologically.
-4. "conclusion" is the final 2-4 sentence closing assessment.
+REPORT STRUCTURE:
+1. "sections" — Each document category gets a DETAILED factual brief (3-6 sentences), written in formal investigative language with ALL factual details inline. Not a summary — a comprehensive factual extract written like a professional investigator's notes.
+2. "findings" — A structured, numbered list of KEY established facts drawn from ALL documents. Each finding must be a complete, self-contained factual statement with all identifiers inline. Group logically: (a) Accident facts (b) Victim/injured details (c) Vehicle & document verification (d) Statement analysis (e) Medical/cause findings (f) Discrepancies noted.
+3. "observations" — This is the MAIN body of the report. Write a DETAILED, CHRONOLOGICAL narrative (minimum 800 words for a complete case) structured as follows:
+   (a) Introduction & assignment: Who assigned, reference, purpose of investigation.
+   (b) Accident circumstances: Complete reconstruction from FIR, panchnama, DAR — with exact location, date/time, vehicles, sequence of events, all inline.
+   (c) Scene of accident / spot details: What was found at the spot, road conditions, evidence.
+   (d) Victim/deceased/injured particulars: Full identity with cross-document age/DOB comparison inline.
+   (e) Medical / cause of death / injuries: Hospital, admission, treatment, MLC findings, PM findings — all chronological with dates inline.
+   (f) Statements analysis: What each witness/insured/driver/claimant said — with critical analysis of who actually saw vs who arrived later, contradictions noted inline.
+   (g) Vehicle & document verification: IV and TP vehicle details, RC, permit, fitness, DL, policy — each verified with validity dates inline, any gaps or mismatches noted immediately.
+   (h) Police/legal proceedings: FIR, chargesheet, sections applied — all inline.
+   (i) Discrepancies & red flags: Woven into the narrative where they naturally arise, not as a separate list.
+   The observations must read as one continuous, authoritative investigation narrative — not as disconnected paragraphs. Each paragraph must flow into the next with proper transitions.
+4. "conclusion" — A comprehensive closing assessment (4-8 sentences) with clear determination on: (a) whether the accident is genuine/staged (b) liability assessment (c) document compliance status (d) any recommendations for the insurer.
 
 Produce a JSON object (nothing else) with this shape:
 {
   "sections": {
-    ${sectionKeys ? sectionKeys.split(", ").map(k => `"${k}": "SHORT factual brief (1-3 sentences)"`).join(",\n    ") : '"none": "no categories selected"'}
+    ${sectionKeys ? sectionKeys.split(", ").map(k => `"${k}": "DETAILED factual brief (3-6 sentences, all facts inline)"`).join(",\n    ") : '"none": "no categories selected"'}
   },
   "redFlags": [
-    {"flag": "title", "detail": "1-2 sentence explanation", "severity": "high|medium|low"}
+    {"flag": "title", "detail": "detailed explanation with exact mismatched values cited", "severity": "high|medium|low"}
   ],
-  "findings": "bullet-style list (\\n between items, prefix with '- ')",
-  "observations": "detailed narrative synthesis in formal MACT report style",
-  "conclusion": "2-4 sentences closing assessment"
+  "findings": "numbered list (\\n between items, prefix with '1. ', '2. ' etc.), grouped by category",
+  "observations": "DETAILED chronological narrative (minimum 800 words), formal investigative language, every fact inline, sequence: accident → victim → medical → statements → documents → discrepancies",
+  "conclusion": "comprehensive 4-8 sentence closing assessment with determination and recommendations"
 }
 
-Rules for redFlags: check for (1) age/DOB mismatches across documents (2) vehicle number mismatches (3) income discrepancies (4) missing documents (5) FIR delay (6) conflicting statements (7) pending chargesheet (8) policy validity gaps. Empty array if nothing found.
+Rules for redFlags (be thorough — a senior investigator catches everything):
+(1) Age/DOB mismatches across ANY documents — cite exact values from each source
+(2) Vehicle number mismatches or formatting differences across documents
+(3) Income discrepancies between petition, statement, and proof
+(4) Missing critical documents — note exactly what is absent
+(5) FIR delay — calculate exact days between accident and FIR, note if explanation given
+(6) Conflicting statements — who contradicts whom, on what specific point
+(7) Pending/missing chargesheet
+(8) Policy validity gaps — check if accident date falls within policy period
+(9) DL validity/class mismatch — check authorization vs vehicle driven
+(10) Permit/fitness expiry — check if valid on date of accident
+(11) Witness credibility — anyone who claims to be eyewitness but description suggests arrived later
+(12) Medical timeline gaps — delay between accident and hospital admission
+Empty array ONLY if genuinely nothing found.
 
 CASE HEADER:
 Claim Type: ${caseData.claimType}
@@ -639,7 +674,7 @@ ${extraNotes || "(none)"}`;
     setError(null);
     try {
       const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-sonnet-4-6", max_tokens: 6000,
+        model: "claude-sonnet-4-6", max_tokens: 12000,
         messages: [{ role: "user", content: buildPrompt() }],
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
