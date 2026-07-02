@@ -498,7 +498,7 @@ Rules:
 - If images are unreadable or blank and no text is provided, return all fields as empty strings.${docxTextBlock}`;
 
       const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-sonnet-4-6", max_tokens: 6144,
+        model: "claude-haiku-4-5-20251001", max_tokens: 6144,
         messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
@@ -557,7 +557,7 @@ Rules:
 - Keep values concise.${docxTextBlock}`;
 
       const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-sonnet-4-6", max_tokens: 1024,
+        model: "claude-haiku-4-5-20251001", max_tokens: 1024,
         messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
@@ -775,7 +775,7 @@ ${extraNotes || "(none)"}`;
       const accidentText = `Date of accident: ${caseData.doa}\nInsured vehicle (IV): ${caseData.ivVehicle}\nFIR narrative: ${firVals.narrative || "(not provided)"}\nFIR filed against: ${firVals.filedAgainst || "(not provided)"}\nSpot panchnama: ${spotVals.narrative || "(not provided)"}\nInvestigator notes: ${extraNotes || "(none)"}`;
 
       const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-sonnet-4-6", max_tokens: 1000,
+        model: "claude-haiku-4-5-20251001", max_tokens: 1000,
         messages: [{role:"user",content:`Based only on the accident facts below, produce a SIMPLE TOP-DOWN SCHEMATIC DIAGRAM as structured JSON. Return ONLY JSON in this shape:
 {
   "roadDescription": "short road label",
