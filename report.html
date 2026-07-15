@@ -82,6 +82,17 @@ const initialCase = {
 };
 
 const DOC_CATEGORIES = [
+  // ── 0. Case Foundation (MACT) ──
+  { key:"claimPetition", title:"Claim Petition Details", fields:[
+    {key:"petitionNo",label:"Petition / case no. & filing date"},
+    {key:"court",label:"Court / Tribunal & jurisdiction"},
+    {key:"petitioners",label:"Petitioner(s) — name, age, relation to deceased/injured",area:true},
+    {key:"respondents",label:"Respondent(s) — insurer, owner, driver",area:true},
+    {key:"causeOfAction",label:"Cause of action / accident summary as per petition",area:true},
+    {key:"reliefClaimed",label:"Compensation claimed & heads of claim",area:true},
+    {key:"sectionsInvoked",label:"Sections of law invoked (MV Act / BNS / other)"},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
   // ── 1. Incident & Scene ──
   { key:"fir", title:"FIR Details", fields:[
     {key:"firNo",label:"FIR No., Date & Police Station"},
@@ -102,6 +113,22 @@ const DOC_CATEGORIES = [
     {key:"narrative",label:"Other DAR details (paste text)",area:true},
     {key:"remarks",label:"Remarks",area:true},
   ]},
+  { key:"siteMap", title:"Site Map / Police Sketch", fields:[
+    {key:"preparedBy",label:"Prepared by (officer name & designation)"},
+    {key:"date",label:"Date of preparation"},
+    {key:"roadDetails",label:"Road name, type, width & surface condition"},
+    {key:"landmarks",label:"Nearby landmarks / reference points"},
+    {key:"vehiclePositions",label:"Position of vehicles as shown in sketch"},
+    {key:"narrative",label:"Other details from site map (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"photographs", title:"Photographs / Visual Evidence", fields:[
+    {key:"scenePhotos",label:"Accident scene photographs — description",area:true},
+    {key:"vehicleDamage",label:"Vehicle damage photographs — description",area:true},
+    {key:"injuryPhotos",label:"Injury / body photographs — description",area:true},
+    {key:"otherEvidence",label:"Other visual evidence (CCTV, dashcam etc.)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
   // ── 2. Death-related ──
   { key:"inquestPanchnama", title:"Inquest Panchnama (Death cases)", fields:[
     {key:"dateTime",label:"Date, time & place of inquest"},
@@ -111,6 +138,22 @@ const DOC_CATEGORIES = [
     {key:"dateTime",label:"Date & place of PM"},
     {key:"causeOfDeath",label:"Cause of death as per PM"},
     {key:"narrative",label:"Other PM details (paste text)",area:true},
+  ]},
+  { key:"deathCertificate", title:"Death Certificate (Death cases)", fields:[
+    {key:"certificateNo",label:"Death certificate no. & date of issue"},
+    {key:"issuedBy",label:"Issued by (municipal authority / hospital)"},
+    {key:"deceasedName",label:"Name of deceased as per certificate"},
+    {key:"dateOfDeath",label:"Date & time of death"},
+    {key:"placeOfDeath",label:"Place of death"},
+    {key:"causeOfDeath",label:"Cause of death as per certificate"},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"legalHeir", title:"Legal Heir / Succession Certificate (Death cases)", fields:[
+    {key:"certificateNo",label:"Certificate no. & date of issue"},
+    {key:"issuedBy",label:"Issued by (court / authority)"},
+    {key:"deceasedName",label:"Name of deceased"},
+    {key:"heirs",label:"Legal heirs — name, age, relation",area:true},
+    {key:"remarks",label:"Remarks",area:true},
   ]},
   // ── 3. Victim Details ──
   { key:"particulars", title:"Particulars of Deceased / Injured", fields:[
@@ -125,6 +168,33 @@ const DOC_CATEGORIES = [
     {key:"income",label:"Income claimed & proof (petition figure vs private statement; salary register/wage slips if employed)",area:true},
     {key:"dependents",label:"Dependents (Death cases) — name, age, relation",area:true},
   ], analysisHint:`Carefully compare the age/DOB values given for Petition, FIR, PMR-or-MLC, and Aadhar/ID proof — these frequently differ by a few years across documents in real cases, and any such mismatch should be captured precisely (e.g. "58 as per Petition, 59 as per FIR, 52 as per PMR, 59 as per Aadhar") rather than averaged or silently resolved; this will be used to flag a discrepancy in the final report. Likewise, if the income figure in the petition differs from a private statement or verified salary/wage figure, record both values rather than picking one.` },
+  { key:"ageProof", title:"Age Proof Documents", fields:[
+    {key:"documentType",label:"Document type",options:["Aadhar Card","PAN Card","School Leaving Certificate","Birth Certificate","Voter ID","Passport","Other"]},
+    {key:"documentNo",label:"Document no. / ID no."},
+    {key:"nameAsPerDoc",label:"Name as per document"},
+    {key:"dobAsPerDoc",label:"Date of birth / age as per document"},
+    {key:"ageAtAccident",label:"Calculated age at date of accident"},
+    {key:"remarks",label:"Remarks (discrepancies with other documents etc.)",area:true},
+  ], analysisHint:"Compare the DOB/age from this document with the age stated in the Petition, FIR, PMR/MLC, and any other documents. Note exact values from each source if they differ — do not average or silently resolve." },
+  { key:"incomeProof", title:"Income Proof & Employment Details", fields:[
+    {key:"occupation",label:"Occupation as stated"},
+    {key:"employer",label:"Employer name & address (if employed)"},
+    {key:"designation",label:"Designation / post"},
+    {key:"salaryPerMonth",label:"Monthly salary / income as per proof"},
+    {key:"incomeAsPerPetition",label:"Income as claimed in petition"},
+    {key:"proofType",label:"Proof type",options:["Salary Certificate","Salary Slips","Form 16","IT Returns","Employer Certificate","Affidavit","None provided","Other"]},
+    {key:"proofDetails",label:"Proof document details (certificate no., period, authority)",area:true},
+    {key:"narrative",label:"Income verification findings",area:true},
+    {key:"remarks",label:"Remarks (discrepancies, unverified claims etc.)",area:true},
+  ], analysisHint:"Income is the most critical factor in MACT compensation calculation. Compare the income figure in the petition with the salary certificate/proof provided. Note any discrepancy clearly. If no proof is provided, note it as a red flag." },
+  { key:"marriageProof", title:"Marriage / Dependency Proof (Death cases)", fields:[
+    {key:"maritalStatus",label:"Marital status of deceased"},
+    {key:"marriageCertNo",label:"Marriage certificate no. & date (if available)"},
+    {key:"spouseName",label:"Spouse name"},
+    {key:"dependents",label:"Dependents — name, age, relation",area:true},
+    {key:"proofType",label:"Proof type",options:["Marriage Certificate","Ration Card","Aadhar (same address)","Affidavit","None provided","Other"]},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
   // ── 4. Medical ──
   { key:"mlcMedical", title:"MLC & Medical / Injury Details", fields:[
     {key:"hospital",label:"Hospital(s) name"},
@@ -141,6 +211,25 @@ const DOC_CATEGORIES = [
     {key:"treatment",label:"Treatment given / procedures performed",area:true},
     {key:"conditionAtDischarge",label:"Condition at time of discharge"},
     {key:"narrative",label:"Other discharge summary details (paste text)",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"medicalBills", title:"Medical Bills & Expenses", fields:[
+    {key:"hospitalName",label:"Hospital / clinic name"},
+    {key:"totalAmount",label:"Total medical expenses claimed"},
+    {key:"billsPeriod",label:"Bills period (from–to dates)"},
+    {key:"billBreakdown",label:"Bill breakdown — admission, surgery, medicines, tests etc.",area:true},
+    {key:"ambulanceCharges",label:"Ambulance / transport charges"},
+    {key:"followUpCosts",label:"Follow-up treatment / physiotherapy costs"},
+    {key:"narrative",label:"Other medical expense details",area:true},
+    {key:"remarks",label:"Remarks (inflated bills, duplicate bills etc.)",area:true},
+  ]},
+  { key:"disabilityCert", title:"Disability Certificate (Injury cases)", fields:[
+    {key:"certificateNo",label:"Certificate no. & date of issue"},
+    {key:"issuedBy",label:"Issued by (medical board / hospital)"},
+    {key:"disabilityPercentage",label:"Percentage of disability"},
+    {key:"disabilityType",label:"Type of disability",options:["Temporary partial","Temporary total","Permanent partial","Permanent total"]},
+    {key:"bodyPart",label:"Affected body part / organ"},
+    {key:"narrative",label:"Disability assessment details",area:true},
     {key:"remarks",label:"Remarks",area:true},
   ]},
   // ── 5. Statements ──
@@ -201,6 +290,14 @@ const DOC_CATEGORIES = [
     {key:"conditions",label:"Key policy conditions"},
     {key:"narrative",label:"Other policy details (paste text)",area:true},
   ]},
+  { key:"pucCert", title:"PUC (Pollution Under Control) Certificate", fields:[
+    {key:"certificateNo",label:"PUC certificate no. & date of issue"},
+    {key:"validity",label:"Valid from–to"},
+    {key:"vehicleNo",label:"Vehicle registration no."},
+    {key:"issuedBy",label:"Issued by (testing centre)"},
+    {key:"validAtAccident",label:"Valid at time of accident?",options:["Yes","No","Expired","Not available"]},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
   // ── 8. TP (Third Party) Documents ──
   { key:"tpVehicle", title:"TP (Third Party) Vehicle Details", fields:[
     {key:"regNo",label:"TP vehicle registration no."},
@@ -243,6 +340,23 @@ const DOC_CATEGORIES = [
     {key:"narrative",label:"Other MCR / inspection details (paste text)",area:true},
     {key:"remarks",label:"Remarks",area:true},
   ]},
+  // ── 10. Verification & History ──
+  { key:"rtoVerification", title:"RTO Verification Report", fields:[
+    {key:"rtoOffice",label:"RTO office & jurisdiction"},
+    {key:"verificationDate",label:"Date of verification"},
+    {key:"rcVerified",label:"RC verified — status & findings"},
+    {key:"dlVerified",label:"DL verified — status & findings"},
+    {key:"permitVerified",label:"Permit verified — status & findings"},
+    {key:"fitnessVerified",label:"Fitness certificate verified — status & findings"},
+    {key:"narrative",label:"Other RTO verification details",area:true},
+    {key:"remarks",label:"Remarks",area:true},
+  ]},
+  { key:"prevClaimHistory", title:"Previous Claim / Accident History", fields:[
+    {key:"priorClaims",label:"Any prior claims by same claimant / vehicle?",options:["None found","Yes — details below","Unable to verify"]},
+    {key:"claimDetails",label:"Prior claim details — case no., insurer, amount, outcome",area:true},
+    {key:"priorAccidents",label:"Prior accident history of vehicle (if any)",area:true},
+    {key:"remarks",label:"Remarks (fraud indicators, pattern etc.)",area:true},
+  ], analysisHint:"Previous claims or accidents involving the same vehicle or claimant are a key fraud indicator. Note any findings clearly." },
 ];
 
 const initialDocCategories = () => {
