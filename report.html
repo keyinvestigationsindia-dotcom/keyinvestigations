@@ -57,6 +57,8 @@ window.addEventListener('unhandledrejection', function(e){
 <script type="text/plain" id="jsx-source">
 const { useState, useRef, useEffect } = React;
 
+const BIMA_AI_URL = "https://bima-ai-service.onrender.com";
+
 // ── Inline SVG Icons ──
 const Icon = {
   FileText: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
@@ -249,41 +251,8 @@ const initialDocCategories = () => {
   return obj;
 };
 
-// ── API Key Setup Component ──
-function ApiKeySetup({ onSave }) {
-  const [key, setKey] = useState('');
-  const saved = localStorage.getItem('ki_anthropic_key');
-  if (saved) { setTimeout(() => onSave(saved), 0); return null; }
-  return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'70vh',padding:40}}>
-      <div style={{background:'#fff',border:'1px solid #E3DDD0',borderRadius:12,padding:36,maxWidth:480,width:'100%',textAlign:'center'}}>
-        <Icon.Key size={32} color="#1B2A4A" style={{margin:'0 auto 12px'}} />
-        <h2 style={{fontFamily:'Lora',fontSize:20,fontWeight:600,color:'#1B2A4A',marginBottom:8}}>API Key Required</h2>
-        <p style={{fontSize:13,color:'#857F6E',marginBottom:20,lineHeight:1.6}}>
-          This tool uses Claude AI to read documents and generate reports. Enter your Anthropic API key to get started. The key is stored only in your browser.
-        </p>
-        <input
-          type="password"
-          value={key}
-          onChange={e=>setKey(e.target.value)}
-          placeholder="sk-ant-api03-..."
-          style={{width:'100%',border:'1px solid #D8D2C4',borderRadius:6,padding:'10px 14px',fontSize:13,marginBottom:14,fontFamily:'monospace'}}
-        />
-        <button
-          onClick={()=>{ if(key.trim()){localStorage.setItem('ki_anthropic_key',key.trim());onSave(key.trim());} }}
-          disabled={!key.trim()}
-          style={{width:'100%',background:key.trim()?'#1B2A4A':'#A6A595',color:'#FAF8F4',border:'none',borderRadius:6,padding:'11px 20px',fontWeight:600,fontSize:13,cursor:key.trim()?'pointer':'not-allowed'}}
-        >Save & Continue</button>
-        <p style={{fontSize:11,color:'#A6A595',marginTop:12}}>
-          Get an API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:'#1B2A4A',textDecoration:'underline'}}>console.anthropic.com</a>
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ── Main Report Tool ──
-function InvestigationReportTool({ apiKey }) {
+function InvestigationReportTool() {
   const [caseData, setCaseData] = useState(initialCase);
   const [docCategories, setDocCategories] = useState(initialDocCategories());
   const [extraNotes, setExtraNotes] = useState("");
@@ -316,25 +285,24 @@ function InvestigationReportTool({ apiKey }) {
     return queued;
   };
 
-  const fetchAnthropicWithRetry = async (body, { maxRetries = 4 } = {}) => {
+  const fetchBimaAI = async (endpoint, body, { maxRetries = 4 } = {}) => {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { window.location.href = 'login.html'; throw new Error("Session expired"); }
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch(BIMA_AI_URL + endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
+          "Authorization": "Bearer " + session.access_token,
         },
         body: JSON.stringify(body),
       });
       if (response.status === 401) {
-        localStorage.removeItem('ki_anthropic_key');
-        throw new Error("Invalid API key. Page will reload — please enter a valid key.");
+        window.location.href = 'login.html';
+        throw new Error("Session expired — please log in again.");
       }
       if ((response.status === 429 || response.status === 529 || response.status === 503) && attempt < maxRetries) {
-        const retryAfterHeader = parseFloat(response.headers.get("retry-after"));
-        const wait = !isNaN(retryAfterHeader) ? retryAfterHeader * 1000 : Math.min(2000 * Math.pow(2, attempt), 16000);
+        const wait = Math.min(2000 * Math.pow(2, attempt), 16000);
         setQueueStatus(`Server busy, retrying in ${Math.round(wait / 1000)}s… (${attempt + 1}/${maxRetries})`);
         await new Promise((r) => setTimeout(r, wait));
         continue;
@@ -479,7 +447,6 @@ function InvestigationReportTool({ apiKey }) {
       const approxTotalKB = imagesPayload.reduce((sum, img) => sum + img.data.length * 0.75, 0) / 1024;
       if (approxTotalKB > 18000) throw new Error(`Files too large (~${Math.round(approxTotalKB / 1024)}MB). Try fewer pages.`);
 
-      const imageBlocks = imagesPayload.map((img) => ({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.data}}));
       const fieldList = cat.fields.map((f) => `"${f.key}": "${f.label}"`).join(", ");
       const docxTextBlock = docxTexts.length ? `\n\nADDITIONAL TEXT FROM UPLOADED WORD DOCUMENT(S):\n${docxTexts.join("\n\n")}` : "";
       const analysisHintBlock = cat.analysisHint ? `\n\nSPECIAL INSTRUCTIONS FOR THIS CATEGORY:\n${cat.analysisHint}` : "";
@@ -497,15 +464,14 @@ Rules:
 - For narrative/long text fields, summarize in formal English, faithful to the source.
 - If images are unreadable or blank and no text is provided, return all fields as empty strings.${docxTextBlock}`;
 
-      const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-haiku-4-5-20251001", max_tokens: 6144,
-        messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
+      const response = await runQueued(() => fetchBimaAI("/ki/vision", {
+        images: imagesPayload, prompt: promptText, max_tokens: 6144, model_tier: "fast",
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
       const data = await response.json();
-      if (!data.content) throw new Error(`Unexpected response: ${JSON.stringify(data).slice(0, 200)}`);
+      if (!data.content) throw new Error("Unexpected response from AI service.");
       if (data.stop_reason === "max_tokens") throw new Error("Content too long — try uploading fewer pages at once.");
-      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+      const text = data.content;
       const cleaned = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleaned);
 
@@ -536,7 +502,6 @@ Rules:
         } else { throw new Error(`"${file.name}" isn't supported.`); }
       }
       if (imagesPayload.length > 20) throw new Error("Upload at most 20 pages at a time.");
-      const imageBlocks = imagesPayload.map((img) => ({type:"image",source:{type:"base64",media_type:img.mediaType,data:img.data}}));
       const docxTextBlock = docxTexts.length ? `\n\nADDITIONAL TEXT FROM UPLOADED WORD DOCUMENT(S):\n${docxTexts.join("\n\n")}` : "";
 
       const promptText = `You are reading insurance claim document(s) — could be a claim intimation letter, policy copy, RC, petition, or FIR — possibly in any major Indian language or English. Extract the following case-level fields, translating into English:
@@ -556,15 +521,13 @@ Rules:
 - If a field isn't visible, set it to "" — do NOT guess.
 - Keep values concise.${docxTextBlock}`;
 
-      const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-haiku-4-5-20251001", max_tokens: 1024,
-        messages: [{role:"user",content:[...imageBlocks,{type:"text",text:promptText}]}],
+      const response = await runQueued(() => fetchBimaAI("/ki/vision", {
+        images: imagesPayload, prompt: promptText, max_tokens: 1024, model_tier: "fast",
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
       const data = await response.json();
       if (!data.content) throw new Error("Unexpected response");
-      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const parsed = JSON.parse(data.content.replace(/```json|```/g, "").trim());
 
       setCaseData((c) => {
         const updated = { ...c };
@@ -673,15 +636,13 @@ ${extraNotes || "(none)"}`;
     if (silent) setAutoUpdating(true); else setGenerating(true);
     setError(null);
     try {
-      const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-sonnet-4-6", max_tokens: 12000,
-        messages: [{ role: "user", content: buildPrompt() }],
+      const response = await runQueued(() => fetchBimaAI("/ki/completion", {
+        prompt: buildPrompt(), max_tokens: 12000, model_tier: "balanced",
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
       const data = await response.json();
       if (data.stop_reason === "max_tokens") throw new Error("Report too long — try regenerating.");
-      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-      setReport(JSON.parse(text.replace(/```json|```/g, "").trim()));
+      setReport(JSON.parse(data.content.replace(/```json|```/g, "").trim()));
       setUserEditedReport(false);
     } catch (e) {
       if (!silent) setError(e.message || "Could not generate report.");
@@ -774,9 +735,8 @@ ${extraNotes || "(none)"}`;
       const spotVals = docCategories.spotPanchnama?.values || {};
       const accidentText = `Date of accident: ${caseData.doa}\nInsured vehicle (IV): ${caseData.ivVehicle}\nFIR narrative: ${firVals.narrative || "(not provided)"}\nFIR filed against: ${firVals.filedAgainst || "(not provided)"}\nSpot panchnama: ${spotVals.narrative || "(not provided)"}\nInvestigator notes: ${extraNotes || "(none)"}`;
 
-      const response = await runQueued(() => fetchAnthropicWithRetry({
-        model: "claude-haiku-4-5-20251001", max_tokens: 1000,
-        messages: [{role:"user",content:`Based only on the accident facts below, produce a SIMPLE TOP-DOWN SCHEMATIC DIAGRAM as structured JSON. Return ONLY JSON in this shape:
+      const response = await runQueued(() => fetchBimaAI("/ki/completion", {
+        prompt: `Based only on the accident facts below, produce a SIMPLE TOP-DOWN SCHEMATIC DIAGRAM as structured JSON. Return ONLY JSON in this shape:
 {
   "roadDescription": "short road label",
   "roadOrientation": "horizontal" or "vertical",
@@ -786,19 +746,17 @@ ${extraNotes || "(none)"}`;
   "confidence": "high|medium|low"
 }
 
-ACCIDENT FACTS:\n${accidentText}`}],
+ACCIDENT FACTS:\n${accidentText}`,
+        max_tokens: 1000, model_tier: "fast",
       }));
       if (!response.ok) throw new Error(await describeFailedResponse(response));
       const data = await response.json();
-      const text = data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-      setDiagram(JSON.parse(text.replace(/```json|```/g, "").trim()));
+      setDiagram(JSON.parse(data.content.replace(/```json|```/g, "").trim()));
     } catch (e) { setDiagramError("Could not generate diagram. Add more detail to FIR/panchnama."); }
     finally { setDiagramLoading(false); }
   };
 
   const severityColor = (sev) => sev === "high" ? "#A8362B" : sev === "medium" ? "#B8762E" : "#6B7280";
-
-  const clearApiKey = () => { localStorage.removeItem('ki_anthropic_key'); window.location.reload(); };
 
   return (
     <div style={{ fontFamily: "Inter, sans-serif", background: "#EFEAE0", minHeight: "calc(100vh - 56px)" }}>
@@ -824,13 +782,8 @@ ACCIDENT FACTS:\n${accidentText}`}],
             <div style={{fontSize:11,color:"#B9C2D6",marginTop:1}}>Case facts in → structured MACT/claim report out</div>
           </div>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <button onClick={clearApiKey} style={{background:'none',border:'1px solid rgba(255,255,255,0.15)',borderRadius:4,padding:'5px 10px',color:'#9AA6C2',fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-            <Icon.Settings size={12} /> Change API Key
-          </button>
-          <div style={{fontSize:11,color:"#9AA6C2",textAlign:"right",maxWidth:200}}>
-            AI-assisted draft. Verify every fact before issuing.
-          </div>
+        <div style={{fontSize:11,color:"#9AA6C2",textAlign:"right",maxWidth:200}}>
+          AI-assisted draft. Verify every fact before issuing.
         </div>
       </div>
 
@@ -1085,9 +1038,7 @@ function AccidentDiagram({ diagram, loading, error }) {
 
 // ── App Wrapper ──
 function App() {
-  const [apiKey, setApiKey] = useState(localStorage.getItem('ki_anthropic_key') || '');
-  if (!apiKey) return <ApiKeySetup onSave={setApiKey} />;
-  return <InvestigationReportTool apiKey={apiKey} />;
+  return <InvestigationReportTool />;
 }
 
 // Mount React
