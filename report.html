@@ -69,6 +69,9 @@ const Icon = {
   Upload: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
   Sparkles: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z"/></svg>,
   Key: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>,
+  Link: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
+  Search: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  X: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   Settings: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
 };
 
@@ -430,6 +433,13 @@ function InvestigationReportTool() {
   const debounceRef = useRef(null);
   const lastSnapshotRef = useRef("");
 
+  // ── Claims linking (state declared early so draft persistence can reference it) ──
+  const [claimsList, setClaimsList] = useState(null);
+  const [linkedClaim, setLinkedClaim] = useState(null);
+  const [claimsLoading, setClaimsLoading] = useState(false);
+  const [showClaimPicker, setShowClaimPicker] = useState(false);
+  const [claimSearch, setClaimSearch] = useState("");
+
   // ── Draft persistence ──
   const [currentDraftId, setCurrentDraftId] = useState(() => localStorage.getItem(CURRENT_DRAFT_KEY) || genDraftId());
   const [lastSaved, setLastSaved] = useState(null);
@@ -453,16 +463,17 @@ function InvestigationReportTool() {
     });
     setExtraNotes(draft.extraNotes || "");
     if (draft.generatedReport) { setReport(draft.generatedReport); setUserEditedReport(true); }
+    if (draft.linkedClaim) setLinkedClaim(draft.linkedClaim);
     setLastSaved(draft.updatedAt);
     setCurrentDraftId(savedId);
   }, []);
 
-  const draftSnapshot = JSON.stringify({ caseData, docCategories, extraNotes, report });
+  const draftSnapshot = JSON.stringify({ caseData, docCategories, extraNotes, report, linkedClaim });
   useEffect(() => {
     if (!draftLoadedRef.current) return;
     if (draftSaveRef.current) clearTimeout(draftSaveRef.current);
     draftSaveRef.current = setTimeout(() => {
-      saveDraftToStorage(currentDraftId, { title: buildDraftTitle(caseData), caseData, docCategories, extraNotes, generatedReport: report });
+      saveDraftToStorage(currentDraftId, { title: buildDraftTitle(caseData), caseData, docCategories, extraNotes, generatedReport: report, linkedClaim });
       setLastSaved(new Date().toISOString());
     }, 1500);
     return () => clearTimeout(draftSaveRef.current);
@@ -477,6 +488,7 @@ function InvestigationReportTool() {
     setDocCategories(base);
     setExtraNotes(draft.extraNotes || "");
     setReport(draft.generatedReport || null);
+    setLinkedClaim(draft.linkedClaim || null);
     setCurrentDraftId(id);
     setLastSaved(draft.updatedAt);
     setUserEditedReport(!!draft.generatedReport);
@@ -493,6 +505,7 @@ function InvestigationReportTool() {
     setReport(null);
     setDiagram(null);
     setError(null);
+    setLinkedClaim(null);
     setCurrentDraftId(id);
     setLastSaved(null);
     setUserEditedReport(false);
@@ -505,6 +518,50 @@ function InvestigationReportTool() {
     deleteDraftFromStorage(id);
     if (id === currentDraftId) newDraft();
   };
+
+  // ── Claims linking (functions) ──
+  const fetchClaims = async () => {
+    if (claimsList) { setShowClaimPicker(true); return; }
+    setClaimsLoading(true);
+    try {
+      const { data, error } = await sb.from("claims").select("id, claim_number, claim_type_id, status, form_data, created_at").order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      setClaimsList(data || []);
+      setShowClaimPicker(true);
+    } catch (e) { console.error("Failed to fetch claims:", e); setClaimsList([]); setShowClaimPicker(true); }
+    finally { setClaimsLoading(false); }
+  };
+
+  const linkClaim = (claim) => {
+    setLinkedClaim(claim);
+    setShowClaimPicker(false);
+    const fd = claim.form_data || {};
+    const typeMap = { mact: "MACT Death Claim", motor_od: "TPPD Claim", tp: "TPPD Claim" };
+    setCaseData(c => ({
+      ...c,
+      claimNo: claim.claim_number || c.claimNo,
+      claimType: typeMap[claim.claim_type_id] || c.claimType,
+      policyNo: fd.policy_number || c.policyNo,
+      doa: fd.accident_date || fd.incident_date || fd.theft_date || c.doa,
+      ivVehicle: fd.vehicle_numbers || fd.insured_vehicle || fd.vehicle_reg || c.ivVehicle,
+      court: fd.court_name || c.court,
+      claimAmount: fd.claim_amount ? "₹" + Number(fd.claim_amount).toLocaleString("en-IN") : c.claimAmount,
+      insured: fd.claimant_name || fd.patient_name || fd.tp_name || c.insured,
+    }));
+  };
+
+  const unlinkClaim = () => { setLinkedClaim(null); };
+
+  const filteredClaims = (claimsList || []).filter(c => {
+    if (!claimSearch) return true;
+    const s = claimSearch.toLowerCase();
+    const fd = c.form_data || {};
+    return (c.claim_number || "").toLowerCase().includes(s)
+      || (c.claim_type_id || "").toLowerCase().includes(s)
+      || (fd.claimant_name || "").toLowerCase().includes(s)
+      || (fd.policy_number || "").toLowerCase().includes(s)
+      || (fd.vehicle_numbers || fd.insured_vehicle || "").toLowerCase().includes(s);
+  });
 
   const aiQueueRef = useRef(Promise.resolve());
   const runQueued = (fn) => {
@@ -1065,6 +1122,49 @@ ACCIDENT FACTS:\n${accidentText}`,
           </div>
           {headerAutoFillError && <div style={{margin:"0 0 10px",padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B",lineHeight:1.5}}>{headerAutoFillError}</div>}
           {openSections.case && <div style={{fontSize:11,color:"#857F6E",marginBottom:8,marginTop:-6}}>Upload a claim intimation letter, policy copy, RC, petition, or FIR to auto-fill.</div>}
+          {openSections.case && (
+            <div style={{position:"relative",marginBottom:10}}>
+              {linkedClaim ? (
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#EEF4ED",border:"1px solid #B8D4B0",borderRadius:6,fontSize:12}}>
+                  <Icon.Link size={13} color="#3A7D2A" />
+                  <span style={{color:"#2D5E22",fontWeight:600}}>{linkedClaim.claim_number}</span>
+                  <span style={{color:"#5A8A4E"}}>{linkedClaim.claim_type_id?.toUpperCase()}</span>
+                  <span style={{color:"#7BA06E",fontSize:11}}>— fields auto-filled</span>
+                  <button onClick={unlinkClaim} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#8A5A5A",fontSize:11,textDecoration:"underline",padding:0}}>Unlink</button>
+                </div>
+              ) : (
+                <button onClick={fetchClaims} disabled={claimsLoading} className="ir-btn-ghost" style={{fontSize:11,padding:"6px 12px",display:"flex",alignItems:"center",gap:6}}>
+                  {claimsLoading ? <Icon.Loader2 size={12} /> : <Icon.Link size={12} />}
+                  {claimsLoading ? "Loading claims…" : "Link to existing claim"}
+                </button>
+              )}
+              {showClaimPicker && (
+                <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,boxShadow:"0 8px 24px rgba(0,0,0,.12)",maxHeight:320,display:"flex",flexDirection:"column"}}>
+                  <div style={{padding:"8px 10px",borderBottom:"1px solid #E3DDD0",display:"flex",alignItems:"center",gap:8}}>
+                    <Icon.Search size={13} color="#A6A595" />
+                    <input value={claimSearch} onChange={e=>setClaimSearch(e.target.value)} placeholder="Search by claim no., name, policy, vehicle…" autoFocus style={{flex:1,border:"none",outline:"none",fontSize:12,fontFamily:"Inter",background:"transparent"}} />
+                    <button onClick={()=>{setShowClaimPicker(false);setClaimSearch("");}} style={{background:"none",border:"none",cursor:"pointer",padding:2}}><Icon.X size={14} color="#A6A595" /></button>
+                  </div>
+                  <div style={{overflowY:"auto",flex:1}}>
+                    {filteredClaims.length === 0 && <div style={{padding:"16px",textAlign:"center",fontSize:12,color:"#A6A595"}}>No claims found</div>}
+                    {filteredClaims.map(c => {
+                      const fd = c.form_data || {};
+                      const name = fd.claimant_name || fd.patient_name || fd.tp_name || "";
+                      return (
+                        <div key={c.id} onClick={()=>linkClaim(c)} style={{padding:"10px 12px",cursor:"pointer",borderBottom:"1px solid #F0ECE4",display:"flex",alignItems:"center",gap:10,transition:"background .1s"}} onMouseEnter={e=>e.currentTarget.style.background="#F8F6F0"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:12,fontWeight:600,color:"#1B2A4A"}}>{c.claim_number} <span style={{fontWeight:400,color:"#857F6E",textTransform:"uppercase",fontSize:10}}>{c.claim_type_id}</span></div>
+                            {name && <div style={{fontSize:11,color:"#857F6E",marginTop:2}}>{name}{fd.policy_number ? ` · ${fd.policy_number}` : ""}</div>}
+                          </div>
+                          <span style={{fontSize:10,color:"#A6A595"}}>{new Date(c.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"2-digit"})}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {openSections.case && (
             <div style={{background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,padding:16,marginBottom:18,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <SelectField label="Claim type" value={caseData.claimType} onChange={(v)=>updateCase("claimType",v)} options={["MACT Death Claim","MACT Injury Claim","TPPD Claim"]} />
