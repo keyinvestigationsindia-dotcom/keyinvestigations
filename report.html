@@ -365,6 +365,45 @@ const initialDocCategories = () => {
   return obj;
 };
 
+// ── Draft Persistence (localStorage) ──
+const DRAFTS_STORAGE_KEY = "ki_report_drafts";
+const CURRENT_DRAFT_KEY = "ki_current_draft_id";
+const genDraftId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+const getAllDrafts = () => { try { return JSON.parse(localStorage.getItem(DRAFTS_STORAGE_KEY) || "{}"); } catch { return {}; } };
+
+const saveDraftToStorage = (id, data) => {
+  const drafts = getAllDrafts();
+  const existing = drafts[id] || {};
+  drafts[id] = { ...data, id, updatedAt: new Date().toISOString(), createdAt: existing.createdAt || new Date().toISOString() };
+  localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  localStorage.setItem(CURRENT_DRAFT_KEY, id);
+};
+
+const deleteDraftFromStorage = (id) => {
+  const drafts = getAllDrafts();
+  delete drafts[id];
+  localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  if (localStorage.getItem(CURRENT_DRAFT_KEY) === id) localStorage.removeItem(CURRENT_DRAFT_KEY);
+};
+
+const buildDraftTitle = (caseData) => {
+  const parts = [];
+  if (caseData.claimNo) parts.push("#" + caseData.claimNo);
+  if (caseData.claimType) parts.push(caseData.claimType);
+  if (caseData.insured) parts.push(caseData.insured);
+  return parts.length ? parts.join(" — ") : "Untitled draft";
+};
+
+const timeAgo = (iso) => {
+  if (!iso) return "";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+};
+
 // ── Main Report Tool ──
 function InvestigationReportTool() {
   const [caseData, setCaseData] = useState(initialCase);
@@ -390,6 +429,82 @@ function InvestigationReportTool() {
   const [queueStatus, setQueueStatus] = useState(null);
   const debounceRef = useRef(null);
   const lastSnapshotRef = useRef("");
+
+  // ── Draft persistence ──
+  const [currentDraftId, setCurrentDraftId] = useState(() => localStorage.getItem(CURRENT_DRAFT_KEY) || genDraftId());
+  const [lastSaved, setLastSaved] = useState(null);
+  const [showDraftPicker, setShowDraftPicker] = useState(false);
+  const draftSaveRef = useRef(null);
+  const draftLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+    const savedId = localStorage.getItem(CURRENT_DRAFT_KEY);
+    if (!savedId) return;
+    const drafts = getAllDrafts();
+    const draft = drafts[savedId];
+    if (!draft) return;
+    setCaseData(c => ({ ...initialCase, ...draft.caseData }));
+    setDocCategories(() => {
+      const base = initialDocCategories();
+      for (const [k, v] of Object.entries(draft.docCategories || {})) { if (base[k]) base[k] = v; }
+      return base;
+    });
+    setExtraNotes(draft.extraNotes || "");
+    if (draft.generatedReport) { setReport(draft.generatedReport); setUserEditedReport(true); }
+    setLastSaved(draft.updatedAt);
+    setCurrentDraftId(savedId);
+  }, []);
+
+  const draftSnapshot = JSON.stringify({ caseData, docCategories, extraNotes, report });
+  useEffect(() => {
+    if (!draftLoadedRef.current) return;
+    if (draftSaveRef.current) clearTimeout(draftSaveRef.current);
+    draftSaveRef.current = setTimeout(() => {
+      saveDraftToStorage(currentDraftId, { title: buildDraftTitle(caseData), caseData, docCategories, extraNotes, generatedReport: report });
+      setLastSaved(new Date().toISOString());
+    }, 1500);
+    return () => clearTimeout(draftSaveRef.current);
+  }, [draftSnapshot, currentDraftId]);
+
+  const loadDraft = (id) => {
+    const draft = getAllDrafts()[id];
+    if (!draft) return;
+    setCaseData({ ...initialCase, ...draft.caseData });
+    const base = initialDocCategories();
+    for (const [k, v] of Object.entries(draft.docCategories || {})) { if (base[k]) base[k] = v; }
+    setDocCategories(base);
+    setExtraNotes(draft.extraNotes || "");
+    setReport(draft.generatedReport || null);
+    setCurrentDraftId(id);
+    setLastSaved(draft.updatedAt);
+    setUserEditedReport(!!draft.generatedReport);
+    setShowDraftPicker(false);
+    setDiagram(null);
+    localStorage.setItem(CURRENT_DRAFT_KEY, id);
+  };
+
+  const newDraft = () => {
+    const id = genDraftId();
+    setCaseData({...initialCase});
+    setDocCategories(initialDocCategories());
+    setExtraNotes("");
+    setReport(null);
+    setDiagram(null);
+    setError(null);
+    setCurrentDraftId(id);
+    setLastSaved(null);
+    setUserEditedReport(false);
+    setShowDraftPicker(false);
+    setExpandedDocs({});
+    localStorage.setItem(CURRENT_DRAFT_KEY, id);
+  };
+
+  const deleteDraft = (id) => {
+    deleteDraftFromStorage(id);
+    if (id === currentDraftId) newDraft();
+  };
 
   const aiQueueRef = useRef(Promise.resolve());
   const runQueued = (fn) => {
@@ -896,8 +1011,38 @@ ACCIDENT FACTS:\n${accidentText}`,
             <div style={{fontSize:11,color:"#B9C2D6",marginTop:1}}>Case facts in → structured MACT/claim report out</div>
           </div>
         </div>
-        <div style={{fontSize:11,color:"#9AA6C2",textAlign:"right",maxWidth:200}}>
-          AI-assisted draft. Verify every fact before issuing.
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {lastSaved && <span style={{fontSize:10.5,color:"#6B7F9A"}}>Saved {timeAgo(lastSaved)}</span>}
+          <div style={{position:"relative"}}>
+            <button onClick={()=>setShowDraftPicker(!showDraftPicker)} style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:4,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#FAF8F4",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              <Icon.FileText size={13} /> Saved drafts <Icon.ChevronDown size={12} />
+            </button>
+            {showDraftPicker && (
+              <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:"#fff",border:"1px solid #D8D2C4",borderRadius:6,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",width:340,zIndex:999,maxHeight:400,overflow:"auto"}}>
+                <div style={{padding:"12px 14px",borderBottom:"1px solid #E3DDD0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:"#1B2A4A"}}>Saved drafts</span>
+                  <button onClick={newDraft} style={{background:"#1B2A4A",color:"#fff",border:"none",borderRadius:4,padding:"5px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>+ New draft</button>
+                </div>
+                {Object.values(getAllDrafts()).sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt)).map(d => (
+                  <div key={d.id} onClick={()=>loadDraft(d.id)} style={{padding:"10px 14px",borderBottom:"1px solid #F0EDE6",cursor:"pointer",background:d.id===currentDraftId?"#F0EDE6":"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                    onMouseEnter={e=>{ if(d.id!==currentDraftId) e.currentTarget.style.background="#F8F6F0"; }}
+                    onMouseLeave={e=>{ e.currentTarget.style.background=d.id===currentDraftId?"#F0EDE6":"#fff"; }}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12.5,fontWeight:600,color:"#1B2A4A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.title||"Untitled draft"}</div>
+                      <div style={{fontSize:10.5,color:"#857F6E",marginTop:2}}>{timeAgo(d.updatedAt)}{d.id===currentDraftId ? " · current" : ""}</div>
+                    </div>
+                    {d.id!==currentDraftId && (
+                      <button onClick={e=>{e.stopPropagation();deleteDraft(d.id);}} title="Delete draft" style={{background:"none",border:"none",cursor:"pointer",padding:"4px",color:"#A8362B",fontSize:14,lineHeight:1}}>×</button>
+                    )}
+                  </div>
+                ))}
+                {Object.keys(getAllDrafts()).length === 0 && (
+                  <div style={{padding:"20px 14px",fontSize:12.5,color:"#857F6E",textAlign:"center"}}>No saved drafts yet. Your work is auto-saved.</div>
+                )}
+              </div>
+            )}
+          </div>
+          <button onClick={newDraft} style={{background:"rgba(201,168,76,0.2)",border:"1px solid rgba(201,168,76,0.4)",borderRadius:4,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#e2c17a",cursor:"pointer"}}>+ New</button>
         </div>
       </div>
 
