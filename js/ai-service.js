@@ -330,10 +330,11 @@ const AIService = {
   },
 
   // Drafts the full investigation report from case data + included document sections.
+  // Uses the "best" model tier (Opus) — this is a legal/court document, quality over cost.
   async generateReport({ caseData, docsText, sectionKeys, extraNotes }, { onStatus } = {}) {
     const prompt = _buildReportPrompt({ caseData, docsText, sectionKeys, extraNotes });
     const response = await _runQueued(() => _request("/ki/completion", {
-      prompt, max_tokens: 12000, model_tier: "balanced",
+      prompt, max_tokens: 16000, model_tier: "best",
     }, { onStatus }), onStatus);
     return _parseJsonContent(response, { maxTokensMessage: "Report too long — try regenerating." });
   },
