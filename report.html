@@ -8,6 +8,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
 <style>
 html{font-family:'Inter',system-ui,sans-serif}
 #auth-loading{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0a0f1e;color:#c9a84c;font-size:14px;gap:10px}
@@ -1009,6 +1010,92 @@ ${extraNotes || "(none)"}`;
     triggerDownload(new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" }), `Investigation_Report_${caseData.claimNo || "draft"}.txt`);
   };
 
+  const downloadAsPDF = async () => {
+    if (!report) return;
+    const includedSections = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include && report.sections?.[cat.key]);
+    const sectionsHtml = includedSections.map((cat) =>
+      `<h3 style="font-size:12pt;color:#1B2A4A;margin:14px 0 4px;font-family:Calibri,Arial,sans-serif">${escapeHtml(cat.title)}</h3><p style="font-size:10.5pt;line-height:1.6;margin:0 0 8px;font-family:Calibri,Arial,sans-serif;color:#222">${escapeHtml(report.sections[cat.key]).replace(/\n/g,"<br/>")}</p>`
+    ).join("");
+    const redFlagsHtml = report.redFlags && report.redFlags.length
+      ? `<table style="width:100%;border-collapse:collapse;margin:6px 0 12px"><tr style="background:#1B2A4A;color:#fff"><th style="padding:5px 8px;font-size:9pt;text-align:left">Flag</th><th style="padding:5px 8px;font-size:9pt;text-align:left;width:80px">Severity</th><th style="padding:5px 8px;font-size:9pt;text-align:left">Detail</th></tr>${report.redFlags.map((rf,i) => `<tr style="background:${i%2?"#fff":"#F8F6F2"}"><td style="padding:5px 8px;font-size:9.5pt;font-weight:600;color:#8B2020;border-bottom:1px solid #E5E0D5">${escapeHtml(rf.flag)}</td><td style="padding:5px 8px;font-size:9pt;text-transform:uppercase;border-bottom:1px solid #E5E0D5;color:${(rf.severity||"").toLowerCase()==="high"?"#A8362B":"#8A6D2E"}">${escapeHtml(rf.severity||"")}</td><td style="padding:5px 8px;font-size:9.5pt;border-bottom:1px solid #E5E0D5">${escapeHtml(rf.detail)}</td></tr>`).join("")}</table>`
+      : `<p style="font-size:10.5pt;color:#555;font-family:Calibri,Arial,sans-serif">No discrepancies flagged.</p>`;
+
+    const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"long",year:"numeric"});
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;left:-9999px;top:0;width:210mm;background:#fff;padding:0";
+    container.innerHTML = `<div style="padding:18mm 16mm 20mm;font-family:Calibri,Arial,sans-serif;color:#1a1a1a;font-size:10.5pt;line-height:1.5">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
+        <img src="images/logo.jpg" style="height:52px;border-radius:6px" crossorigin="anonymous" />
+        <div>
+          <div style="font-size:16pt;font-weight:700;color:#1B2A4A;letter-spacing:0.5px">KEY Investigations</div>
+          <div style="font-size:8pt;color:#857F6E;letter-spacing:1.5px;text-transform:uppercase">Unlocking the Truth</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;font-size:7.5pt;color:#857F6E;line-height:1.6">
+          B-404, Safal Profitaire, Corporate Road<br/>Prahlad Nagar, Ahmedabad - 380015<br/>+91 94123 41515 · info@keyinvestigations.in
+        </div>
+      </div>
+      <hr style="border:none;border-top:2px solid #1B2A4A;margin:0 0 14px"/>
+
+      <div style="text-align:center;margin-bottom:14px">
+        <div style="font-size:13pt;font-weight:700;color:#1B2A4A;text-transform:uppercase;letter-spacing:1px">Confidential — Investigation Report</div>
+        <div style="font-size:9pt;color:#857F6E;margin-top:3px">${escapeHtml(caseData.claimType)} ${caseData.claimNo ? "· " + escapeHtml(caseData.claimNo) : ""} · ${today}</div>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:9.5pt">
+        <tr><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;width:22%;color:#1B2A4A">Claim No.</td><td style="padding:5px 8px;border:1px solid #E3DDD0;width:28%">${escapeHtml(caseData.claimNo)}</td><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;width:22%;color:#1B2A4A">Court</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.court)}</td></tr>
+        <tr><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Claim Amount</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.claimAmount)}</td><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Date of Accident</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.doa)}</td></tr>
+        <tr><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Insured Vehicle</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.ivVehicle)}</td><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Insured</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.insured)}</td></tr>
+        <tr><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Policy No.</td><td colspan="3" style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.policyNo)}${caseData.policyPeriod ? " (" + escapeHtml(caseData.policyPeriod) + ")" : ""}</td></tr>
+        <tr><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Insurer</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.insurer)}</td><td style="padding:5px 8px;background:#F4F1EA;border:1px solid #E3DDD0;font-weight:600;color:#1B2A4A">Ref No.</td><td style="padding:5px 8px;border:1px solid #E3DDD0">${escapeHtml(caseData.refNo)}</td></tr>
+      </table>
+
+      <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Document-wise Briefs</h2>
+      ${sectionsHtml || "<p style='font-size:10.5pt;color:#555'>No documents included.</p>"}
+
+      <h2 style="font-size:12pt;color:#8B2020;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Red Flags / Discrepancies</h2>
+      ${redFlagsHtml}
+
+      <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Findings</h2>
+      <p style="font-size:10.5pt;line-height:1.6;font-family:Calibri,Arial,sans-serif">${escapeHtml(report.findings).replace(/\n/g,"<br/>")}</p>
+
+      <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Observations</h2>
+      <p style="font-size:10.5pt;line-height:1.6;font-family:Calibri,Arial,sans-serif">${escapeHtml(report.observations).replace(/\n/g,"<br/>")}</p>
+
+      <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Conclusion</h2>
+      <p style="font-size:10.5pt;line-height:1.6;font-family:Calibri,Arial,sans-serif">${escapeHtml(report.conclusion).replace(/\n/g,"<br/>")}</p>
+
+      <div style="margin-top:32px;border-top:1px solid #E3DDD0;padding-top:16px;display:flex;gap:40px">
+        <div>
+          <div style="font-size:9pt;color:#857F6E;margin-bottom:28px">Prepared by</div>
+          <div style="border-top:1px solid #1B2A4A;padding-top:4px;font-size:10pt;font-weight:600;color:#1B2A4A">Investigating Officer</div>
+          <div style="font-size:8.5pt;color:#857F6E">KEY Investigations</div>
+        </div>
+        <div>
+          <div style="font-size:9pt;color:#857F6E;margin-bottom:28px">Reviewed by</div>
+          <div style="border-top:1px solid #1B2A4A;padding-top:4px;font-size:10pt;font-weight:600;color:#1B2A4A">QC Reviewer</div>
+          <div style="font-size:8.5pt;color:#857F6E">KEY Investigations</div>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;text-align:center;font-size:7.5pt;color:#A6A595;border-top:1px solid #E3DDD0;padding-top:8px">
+        This is an AI-generated draft report. All content must be verified against source documents before official issuance.<br/>
+        © ${new Date().getFullYear()} KEY Investigations · B-404, Safal Profitaire, Prahlad Nagar, Ahmedabad 380015 · www.keyinvestigations.in
+      </div>
+    </div>`;
+
+    document.body.appendChild(container);
+    try {
+      await html2pdf().set({
+        margin: 0,
+        filename: `Investigation_Report_${caseData.claimNo || "draft"}.pdf`,
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] }
+      }).from(container).save();
+    } finally { document.body.removeChild(container); }
+  };
+
   // Diagram
   const [diagram, setDiagram] = useState(null);
   const [diagramLoading, setDiagramLoading] = useState(false);
@@ -1269,6 +1356,7 @@ ACCIDENT FACTS:\n${accidentText}`,
                   <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
                     {autoUpdating && <div style={{fontSize:10.5,fontFamily:"Inter",color:"#B8762E",display:"flex",alignItems:"center",gap:5}}><Icon.Loader2 size={11} /> Updating…</div>}
                     <div style={{display:"flex",gap:6}}>
+                      <button className="ir-btn-ghost" onClick={downloadAsPDF} style={{fontWeight:600}}><Icon.FileText size={12} /> PDF</button>
                       <button className="ir-btn-ghost" onClick={downloadAsWord}><Icon.FileText size={12} /> Word</button>
                       <button className="ir-btn-ghost" onClick={downloadAsText}><Icon.FileText size={12} /> Text</button>
                     </div>
