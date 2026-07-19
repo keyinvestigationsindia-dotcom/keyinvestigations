@@ -299,34 +299,33 @@ function _buildDiagramPrompt(accidentText) {
 ACCIDENT FACTS:\n${accidentText}`;
 }
 
-// ── Legal & Investigation Intelligence — shared contract ──
-// This module list and record shape are the permanent, shared contract between
-// KEY Investigations and the Bima Anveshak AI Engine (approved 2026-07-19). Both
-// products must produce/consume this exact shape. Nothing behind it is implemented
-// yet — every module resolves as a placeholder until a real backend exists.
-const LEGAL_INTELLIGENCE_MODULES = [
-  { key: "courtCaseIntelligence",       label: "Court Case Intelligence" },
-  { key: "litigationIntelligence",      label: "Litigation Intelligence" },
-  { key: "insuranceIntelligence",       label: "Insurance Intelligence" },
-  { key: "vehicleIntelligence",         label: "Vehicle Intelligence" },
-  { key: "personIntelligence",          label: "Person Intelligence" },
-  { key: "timelineIntelligence",        label: "Timeline Intelligence" },
-  { key: "crossVerificationSummary",    label: "Cross Verification Summary" },
-  { key: "aiInvestigationFindings",     label: "AI Investigation Findings" },
-  { key: "riskAssessment",              label: "Risk Assessment" },
-  { key: "investigatorAlerts",          label: "Investigator Alerts" },
-  { key: "digitalEvidenceIntelligence", label: "Digital Evidence Intelligence" },
-  { key: "medicalIntelligence",         label: "Medical Intelligence" },
-];
+// ── Legal & Investigation Intelligence — shared contract (frozen v1.1, 2026-07-19) ──
+// Three-layer plug-in architecture:
+//   Layer 1 (registry)  — public.legal_intelligence_modules in Supabase. The catalog
+//                         of which modules exist. Shared by KEY Investigations and the
+//                         Bima Anveshak AI Engine via the same project. Adding a future
+//                         module (Voice Intelligence, OSINT Intelligence, etc.) is one
+//                         INSERT into that table — no file edit, no deploy, either repo.
+//   Layer 2 (data)      — the ModuleRecord array below, stored in
+//                         report_drafts.legal_intelligence (jsonb). Changes per report.
+//   Layer 3 (renderer)  — ModuleCard / LegalIntelligenceSection / the export functions
+//                         in report.html. Reads Layer 2 generically; never touches
+//                         Layer 1 or hardcodes a module name. Never changes when Layer 1
+//                         gains a row.
+// Nothing behind this is implemented yet — every module resolves as a placeholder
+// until a real backend exists.
+const LEGAL_INTELLIGENCE_SCHEMA_VERSION = "1.1.0";
 
 // One record per module — every field below is part of the shared contract.
 // status is one of exactly: "Completed" | "Pending Verification" | "Not Performed" |
 // "Not Applicable". manualReview/verifiedBy record who moved a module from Pending to
 // Completed; they are not a second status system.
-function _emptyModuleRecord(key, label) {
+// evidence items are { label, kind, url|fileRef } — kind is one of "document" | "image" |
+// "audio" | "video" | "map" | "link", defaulting to "document" when absent. Additive:
+// existing stored records with no kind on their evidence items remain valid as-is.
+function _emptyModuleRecord(moduleId, moduleLabel) {
   return {
-    moduleId: key,
-    moduleLabel: label,
+    moduleId, moduleLabel,
     status: "Not Performed",
     summary: null,
     details: null,
@@ -335,24 +334,45 @@ function _emptyModuleRecord(key, label) {
     asOf: null,         // ISO date the underlying data was valid/fetched
     verifiedBy: null,   // investigator/QC name once manually reviewed
     manualReview: false,
-    evidence: [],       // [{ label, url|fileRef }]
+    evidence: [],       // [{ label, kind, url|fileRef }]
     references: [],     // citation / case-number strings
     lastUpdated: new Date().toISOString(),
     version: 1,
   };
 }
 
+// Reads the Layer 1 registry table. Returns [] (never throws) if the table is
+// unreachable — a registry hiccup degrades to "no modules shown," not a crash.
+async function _fetchModuleRegistry() {
+  try {
+    const { data, error } = await sb
+      .from("legal_intelligence_modules")
+      .select("module_id, module_label")
+      .eq("enabled", true)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error("Failed to load legal_intelligence_modules registry:", e);
+    return [];
+  }
+}
+
 // FUTURE — not built yet, documented so it can be lifted verbatim into
 // bima-anveshak-ai/apps/ai-services/routers/ once the v1.0 feature freeze lifts:
 //
 //   POST /ki/intelligence   (same _validate_jwt + role-check pattern as ki_drafter.py)
-//   Request:  { caseData: {...}, requestedModules?: string[] }  // keys from
-//             LEGAL_INTELLIGENCE_MODULES above; omit for all 12.
-//   Response: { modules: ModuleRecord[] }  // identical shape to _emptyModuleRecord's
-//             output, just populated.
+//   Request:  { caseData: {...}, requestedModules?: string[] }  // module_id values from
+//             the legal_intelligence_modules registry; omit for all enabled modules.
+//   Response: { schemaVersion, generatedAt, modules: ModuleRecord[] }  — same envelope
+//             getLegalIntelligence() already returns below, just populated. Reads the
+//             SAME registry table, so KEY Investigations and Bima Anveshak never
+//             disagree on which modules exist.
 //
 // When this ships, only getLegalIntelligence()'s body below changes to a real
-// _request("/ki/intelligence", ...) call — every caller stays the same.
+// _request("/ki/intelligence", ...) call — every caller stays the same. API contract
+// rules: additive-only fields, unknown fields/modules must be ignored (not fatal), and
+// the module list is always response-driven — a client never assumes a fixed count.
 
 function _notImplemented(featureName) {
   return Promise.resolve({
@@ -404,12 +424,15 @@ const AIService = {
   },
 
   // Legal & Investigation Intelligence — permanent report section, shared contract
-  // with Bima Anveshak. Builds all 12 modules as placeholders client-side; no
-  // network call exists yet. Swapping in the real /ki/intelligence call later only
-  // changes this function's body (see FUTURE comment above LEGAL_INTELLIGENCE_MODULES).
+  // with Bima Anveshak. Reads the Layer 1 registry table and builds a placeholder
+  // record per enabled module; no /ki/intelligence call exists yet. Swapping in the
+  // real call later only changes this function's body (see FUTURE comment above).
   async getLegalIntelligence({ caseData } = {}, { onStatus } = {}) {
-    return { modules: LEGAL_INTELLIGENCE_MODULES.map((m) => _emptyModuleRecord(m.key, m.label)) };
+    const registry = await _fetchModuleRegistry();
+    return {
+      schemaVersion: LEGAL_INTELLIGENCE_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      modules: registry.map((m) => _emptyModuleRecord(m.module_id, m.module_label)),
+    };
   },
 };
-
-AIService.LEGAL_INTELLIGENCE_MODULES = LEGAL_INTELLIGENCE_MODULES;
