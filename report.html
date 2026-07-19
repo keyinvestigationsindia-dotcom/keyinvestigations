@@ -735,7 +735,7 @@ function InvestigationReportTool() {
       const meta = [];
       if (m.confidence) meta.push(`Confidence: ${escapeHtml(m.confidence)}`);
       if (m.source) meta.push(`Source: ${escapeHtml(m.source)}`);
-      if (m.asOf) meta.push(`As of: ${escapeHtml(m.asOf)}`);
+      if (m.asOf) meta.push(`As of: ${escapeHtml(formatDateDMY(m.asOf))}`);
       if (m.verifiedBy) meta.push(`Verified by: ${escapeHtml(m.verifiedBy)}`);
       if (m.references?.length) meta.push(`References: ${escapeHtml(m.references.join(", "))}`);
       const detail = showDetail
@@ -1300,6 +1300,15 @@ function AccidentDiagram({ diagram, loading, error }) {
   );
 }
 
+// Stored/exchanged as ISO (contract requirement, machine-parseable, shared with Bima
+// Anveshak) — this only formats it for on-screen/export display as dd/mm/yyyy.
+const formatDateDMY = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
+
 // Status pill styling — shared by the report preview and (later) admin/QC views.
 // Vocabulary is fixed to exactly these 4 values by the approved shared contract.
 const LEGAL_STATUS_STYLE = {
@@ -1333,7 +1342,7 @@ function ModuleCard({ module }) {
           <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:"4px 14px",fontFamily:"Inter",fontSize:10.5,color:"#A6A595"}}>
             {module.confidence && <span>Confidence: {module.confidence}</span>}
             {module.source && <span>Source: {module.source}</span>}
-            {module.asOf && <span>As of: {module.asOf}</span>}
+            {module.asOf && <span>As of: {formatDateDMY(module.asOf)}</span>}
             {module.verifiedBy && <span>Verified by: {module.verifiedBy}</span>}
           </div>
           {module.references?.length > 0 && <div style={{marginTop:4,fontFamily:"Inter",fontSize:10.5,color:"#A6A595"}}>References: {module.references.join(", ")}</div>}
