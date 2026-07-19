@@ -3,7 +3,7 @@
 ## Working Style
 - You are the dev. Make decisions autonomously – commit, push, deploy without asking.
 - Only pause for irreversible or ambiguous decisions (deleting prod data, major arch changes).
-- Always push after committing. The site auto-deploys from main via Netlify.
+- Always push after committing. The site auto-deploys from main via GitHub Pages.
 
 ## Tech Stack
 - Pure static HTML/CSS/JS – no build step, no framework, no bundler.
@@ -42,5 +42,8 @@ supabase/migrations – Database migration SQL files
 
 ## Deployment
 - GitHub repo: keyinvestigationsindia-dotcom/keyinvestigations (main branch)
-- Netlify auto-deploys from main. Just push.
-- Domain: keyinvestigations.in (GoDaddy DNS → Netlify).
+- GitHub Pages auto-deploys from main. Just push. (Confirmed via DNS/headers/`gh api .../pages`
+  2026-07-19 — not Netlify, despite this doc previously saying so.)
+- Domain: keyinvestigations.in (GoDaddy DNS → GitHub Pages, A records 185.199.108/109/110/111.153).
+- GitHub Pages/Fastly CDN caches assets at `max-age=600`; a fresh push can take a few minutes
+  to propagate across all edge nodes, so don't assume it's live everywhere instantly.
