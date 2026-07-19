@@ -368,6 +368,18 @@ const initialDocCategories = () => {
   return obj;
 };
 
+// Flattens the included, filled-in document categories into the plain text block
+// every AI call (report generation, Legal & Investigation Intelligence modules) reads from.
+const buildDocsText = (docCategories) => DOC_CATEGORIES
+  .filter((cat) => docCategories[cat.key]?.include)
+  .map((cat) => {
+    const vals = docCategories[cat.key].values;
+    const fieldLines = cat.fields.map((f) => (vals[f.key]?.trim() ? `${f.label}: ${vals[f.key].trim()}` : null)).filter(Boolean).join("\n");
+    return fieldLines ? `--- ${cat.title} ---\n${fieldLines}` : null;
+  })
+  .filter(Boolean)
+  .join("\n\n");
+
 // ── Draft Persistence (Supabase report_drafts — synced across devices) ──
 const CURRENT_DRAFT_KEY = "ki_current_draft_id"; // local pointer only; draft content lives in Supabase
 const genDraftId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -682,13 +694,8 @@ function InvestigationReportTool() {
     if (silent) setAutoUpdating(true); else setGenerating(true);
     setError(null);
     try {
-      const includedCats = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include);
-      const docsText = includedCats.map((cat) => {
-        const vals = docCategories[cat.key].values;
-        const fieldLines = cat.fields.map((f) => (vals[f.key]?.trim() ? `${f.label}: ${vals[f.key].trim()}` : null)).filter(Boolean).join("\n");
-        return fieldLines ? `--- ${cat.title} ---\n${fieldLines}` : null;
-      }).filter(Boolean).join("\n\n");
-      const sectionKeys = includedCats.map((c) => c.key).join(", ");
+      const docsText = buildDocsText(docCategories);
+      const sectionKeys = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include).map((c) => c.key).join(", ");
 
       const result = await AIService.generateReport({ caseData, docsText, sectionKeys, extraNotes }, { onStatus: setQueueStatus });
       setReport(result);
@@ -926,7 +933,8 @@ function InvestigationReportTool() {
   const refreshLegalIntelligence = async () => {
     setLegalIntelligenceLoading(true); setLegalIntelligenceError(null);
     try {
-      const result = await AIService.getLegalIntelligence({ caseData });
+      const docsText = buildDocsText(docCategories);
+      const result = await AIService.getLegalIntelligence({ caseData, docsText }, { onStatus: setQueueStatus });
       setLegalIntelligence(result);
     } catch (e) { setLegalIntelligenceError("Could not refresh Legal & Investigation Intelligence."); }
     finally { setLegalIntelligenceLoading(false); }

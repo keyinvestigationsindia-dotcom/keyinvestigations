@@ -358,6 +358,69 @@ async function _fetchModuleRegistry() {
   }
 }
 
+// ── Module implementations (Layer 2 compute — one function per module, fully independent) ──
+// getLegalIntelligence() dispatches to these by module_id. A module with no entry here still
+// resolves as a placeholder ("Not Performed") — this is exactly the seam future modules plug
+// into, one at a time, without touching the registry, the renderer, or any other module.
+
+function _buildTimelineIntelligencePrompt(docsText) {
+  return `You are reconstructing a chronological timeline for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not a legal or medical authority.
+
+From the case document text below, extract every explicitly dated event (accident, FIR lodging, panchnama, admission/discharge, postmortem, death, chargesheet, etc.) and:
+1. List them in chronological order.
+2. Flag any sequence that is impossible or inconsistent (e.g. a document dated before the event it describes, a death certificate dated before the postmortem, an FIR lodged before the stated accident time) — only flag what the text actually supports, do not speculate.
+3. If a document's date is missing or unclear, say so rather than guessing.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "events": [{"date": "as written in source, do not reformat", "event": "short label", "source": "which document"}],
+  "anomalies": [{"description": "plain-language explanation", "severity": "high|medium|low"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+// Returns just the content fields — getLegalIntelligence() merges in moduleId/moduleLabel
+// from the registry row, so this function doesn't need to know its own identity.
+async function _computeTimelineIntelligence({ docsText }, { onStatus } = {}) {
+  const prompt = _buildTimelineIntelligencePrompt(docsText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 2000, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Timeline too long — try including fewer documents." });
+
+  const events = parsed.events || [];
+  const anomalies = parsed.anomalies || [];
+  const eventLines = events.map((e) => `${e.date} — ${e.event} (${e.source})`).join("\n");
+  const anomalyLines = anomalies.map((a) => `[${(a.severity || "").toUpperCase()}] ${a.description}`).join("\n");
+  const summary = anomalies.length
+    ? `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; ${anomalies.length} inconsistenc${anomalies.length === 1 ? "y" : "ies"} flagged.`
+    : `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; no inconsistencies flagged.`;
+
+  return {
+    // Not "Completed" — this is fresh AI output nobody has reviewed yet. Only a human
+    // marking it reviewed (manualReview/verifiedBy) should ever move it to Completed.
+    status: "Pending Verification",
+    summary,
+    details: [eventLines, anomalyLines].filter(Boolean).join("\n\n") || null,
+    confidence: parsed.confidence || null,
+    source: "AI-extracted from uploaded case documents",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: false,
+    evidence: [],
+    references: [],
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
+const _MODULE_IMPLEMENTATIONS = {
+  timelineIntelligence: _computeTimelineIntelligence,
+};
+
 // FUTURE — not built yet, documented so it can be lifted verbatim into
 // bima-anveshak-ai/apps/ai-services/routers/ once the v1.0 feature freeze lifts:
 //
@@ -424,15 +487,31 @@ const AIService = {
   },
 
   // Legal & Investigation Intelligence — permanent report section, shared contract
-  // with Bima Anveshak. Reads the Layer 1 registry table and builds a placeholder
-  // record per enabled module; no /ki/intelligence call exists yet. Swapping in the
-  // real call later only changes this function's body (see FUTURE comment above).
-  async getLegalIntelligence({ caseData } = {}, { onStatus } = {}) {
+  // with Bima Anveshak. Reads the Layer 1 registry table; any module with a real
+  // implementation (see _MODULE_IMPLEMENTATIONS above) computes for real when docsText
+  // is provided, everything else stays a placeholder. No docsText (page load, new
+  // draft) means zero AI calls — real computation is opt-in, triggered only by the
+  // Refresh button, same as accident diagram generation. Swapping in a real
+  // /ki/intelligence backend later only changes this function's body (see FUTURE
+  // comment above) — callers and the module dispatch pattern stay the same.
+  async getLegalIntelligence({ caseData, docsText } = {}, { onStatus } = {}) {
     const registry = await _fetchModuleRegistry();
+    const modules = await Promise.all(registry.map(async (m) => {
+      const impl = docsText && _MODULE_IMPLEMENTATIONS[m.module_id];
+      if (impl) {
+        try {
+          const record = await impl({ docsText }, { onStatus });
+          return { ...record, moduleId: m.module_id, moduleLabel: m.module_label };
+        } catch (e) {
+          console.error(`Legal intelligence module "${m.module_id}" failed, showing placeholder:`, e);
+        }
+      }
+      return _emptyModuleRecord(m.module_id, m.module_label);
+    }));
     return {
       schemaVersion: LEGAL_INTELLIGENCE_SCHEMA_VERSION,
       generatedAt: new Date().toISOString(),
-      modules: registry.map((m) => _emptyModuleRecord(m.module_id, m.module_label)),
+      modules,
     };
   },
 };
