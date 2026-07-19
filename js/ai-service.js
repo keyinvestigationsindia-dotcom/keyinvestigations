@@ -299,6 +299,61 @@ function _buildDiagramPrompt(accidentText) {
 ACCIDENT FACTS:\n${accidentText}`;
 }
 
+// ── Legal & Investigation Intelligence — shared contract ──
+// This module list and record shape are the permanent, shared contract between
+// KEY Investigations and the Bima Anveshak AI Engine (approved 2026-07-19). Both
+// products must produce/consume this exact shape. Nothing behind it is implemented
+// yet — every module resolves as a placeholder until a real backend exists.
+const LEGAL_INTELLIGENCE_MODULES = [
+  { key: "courtCaseIntelligence",       label: "Court Case Intelligence" },
+  { key: "litigationIntelligence",      label: "Litigation Intelligence" },
+  { key: "insuranceIntelligence",       label: "Insurance Intelligence" },
+  { key: "vehicleIntelligence",         label: "Vehicle Intelligence" },
+  { key: "personIntelligence",          label: "Person Intelligence" },
+  { key: "timelineIntelligence",        label: "Timeline Intelligence" },
+  { key: "crossVerificationSummary",    label: "Cross Verification Summary" },
+  { key: "aiInvestigationFindings",     label: "AI Investigation Findings" },
+  { key: "riskAssessment",              label: "Risk Assessment" },
+  { key: "investigatorAlerts",          label: "Investigator Alerts" },
+  { key: "digitalEvidenceIntelligence", label: "Digital Evidence Intelligence" },
+  { key: "medicalIntelligence",         label: "Medical Intelligence" },
+];
+
+// One record per module — every field below is part of the shared contract.
+// status is one of exactly: "Completed" | "Pending Verification" | "Not Performed" |
+// "Not Applicable". manualReview/verifiedBy record who moved a module from Pending to
+// Completed; they are not a second status system.
+function _emptyModuleRecord(key, label) {
+  return {
+    moduleId: key,
+    moduleLabel: label,
+    status: "Not Performed",
+    summary: null,
+    details: null,
+    confidence: null,   // "high" | "medium" | "low" | null
+    source: null,       // e.g. "Bima Anveshak AI Engine — eCourts Connector v1"
+    asOf: null,         // ISO date the underlying data was valid/fetched
+    verifiedBy: null,   // investigator/QC name once manually reviewed
+    manualReview: false,
+    evidence: [],       // [{ label, url|fileRef }]
+    references: [],     // citation / case-number strings
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
+// FUTURE — not built yet, documented so it can be lifted verbatim into
+// bima-anveshak-ai/apps/ai-services/routers/ once the v1.0 feature freeze lifts:
+//
+//   POST /ki/intelligence   (same _validate_jwt + role-check pattern as ki_drafter.py)
+//   Request:  { caseData: {...}, requestedModules?: string[] }  // keys from
+//             LEGAL_INTELLIGENCE_MODULES above; omit for all 12.
+//   Response: { modules: ModuleRecord[] }  // identical shape to _emptyModuleRecord's
+//             output, just populated.
+//
+// When this ships, only getLegalIntelligence()'s body below changes to a real
+// _request("/ki/intelligence", ...) call — every caller stays the same.
+
 function _notImplemented(featureName) {
   return Promise.resolve({
     available: false,
@@ -348,14 +403,13 @@ const AIService = {
     return _parseJsonContent(response);
   },
 
-  // ── Future Bima Anveshak AI Engine features ──
-  // Interfaces only — not implemented. Each resolves { available: false } instead
-  // of calling any endpoint. When the corresponding Bima Anveshak AI endpoint
-  // ships, fill in the body with a real _request(...) call; callers do not change.
-  async backgroundVerification(input) { return _notImplemented("Background Verification"); },
-  async crimeCheck(input) { return _notImplemented("Crime Check"); },
-  async fraudDetection(input) { return _notImplemented("Fraud Detection"); },
-  async timelineIntelligence(input) { return _notImplemented("Timeline Intelligence"); },
-  async crossVerification(input) { return _notImplemented("Cross Verification"); },
-  async riskScoring(input) { return _notImplemented("Risk Scoring"); },
+  // Legal & Investigation Intelligence — permanent report section, shared contract
+  // with Bima Anveshak. Builds all 12 modules as placeholders client-side; no
+  // network call exists yet. Swapping in the real /ki/intelligence call later only
+  // changes this function's body (see FUTURE comment above LEGAL_INTELLIGENCE_MODULES).
+  async getLegalIntelligence({ caseData } = {}, { onStatus } = {}) {
+    return { modules: LEGAL_INTELLIGENCE_MODULES.map((m) => _emptyModuleRecord(m.key, m.label)) };
+  },
 };
+
+AIService.LEGAL_INTELLIGENCE_MODULES = LEGAL_INTELLIGENCE_MODULES;

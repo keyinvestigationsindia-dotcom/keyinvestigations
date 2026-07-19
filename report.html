@@ -371,7 +371,7 @@ const initialDocCategories = () => {
 // ── Draft Persistence (Supabase report_drafts — synced across devices) ──
 const CURRENT_DRAFT_KEY = "ki_current_draft_id"; // local pointer only; draft content lives in Supabase
 const genDraftId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
-const DRAFT_COLUMNS = "id, claim_id, title, case_data, doc_categories, extra_notes, generated_report, updated_at, created_at";
+const DRAFT_COLUMNS = "id, claim_id, title, case_data, doc_categories, extra_notes, generated_report, legal_intelligence, updated_at, created_at";
 
 let _cachedUserId = null;
 const getCurrentUserId = async () => {
@@ -385,6 +385,7 @@ const rowToDraft = (row) => ({
   id: row.id, claimId: row.claim_id, title: row.title,
   caseData: row.case_data || {}, docCategories: row.doc_categories || {},
   extraNotes: row.extra_notes || "", generatedReport: row.generated_report || null,
+  legalIntelligence: row.legal_intelligence || null,
   updatedAt: row.updated_at,
 });
 
@@ -412,13 +413,13 @@ const fetchDraftsList = async () => {
   return data || [];
 };
 
-const upsertDraft = async (id, { title, caseData, docCategories, extraNotes, generatedReport, linkedClaim }) => {
+const upsertDraft = async (id, { title, caseData, docCategories, extraNotes, generatedReport, legalIntelligence, linkedClaim }) => {
   const userId = await getCurrentUserId();
   if (!userId) return;
   const { error } = await sb.from("report_drafts").upsert({
     id, user_id: userId, claim_id: linkedClaim?.id || null, title,
     case_data: caseData, doc_categories: docCategories, extra_notes: extraNotes,
-    generated_report: generatedReport,
+    generated_report: generatedReport, legal_intelligence: legalIntelligence,
   }, { onConflict: "id" });
   if (error) console.error("Failed to save draft:", error);
 };
@@ -502,7 +503,7 @@ function InvestigationReportTool() {
     (async () => {
       const savedId = localStorage.getItem(CURRENT_DRAFT_KEY);
       const draft = (savedId && await fetchDraftRow(savedId)) || await fetchLatestDraftRow();
-      if (!draft) return;
+      if (!draft) { setLegalIntelligence(await AIService.getLegalIntelligence({ caseData: initialCase })); return; }
       setCaseData(c => ({ ...initialCase, ...draft.caseData }));
       setDocCategories(() => {
         const base = initialDocCategories();
@@ -511,6 +512,7 @@ function InvestigationReportTool() {
       });
       setExtraNotes(draft.extraNotes || "");
       if (draft.generatedReport) { setReport(draft.generatedReport); setUserEditedReport(true); }
+      setLegalIntelligence(draft.legalIntelligence || await AIService.getLegalIntelligence({ caseData: draft.caseData }));
       if (draft.claimId) setLinkedClaim(await fetchClaimById(draft.claimId));
       setLastSaved(draft.updatedAt);
       setCurrentDraftId(draft.id);
@@ -518,12 +520,12 @@ function InvestigationReportTool() {
     })();
   }, []);
 
-  const draftSnapshot = JSON.stringify({ caseData, docCategories, extraNotes, report, linkedClaim });
+  const draftSnapshot = JSON.stringify({ caseData, docCategories, extraNotes, report, legalIntelligence, linkedClaim });
   useEffect(() => {
     if (!draftLoadedRef.current) return;
     if (draftSaveRef.current) clearTimeout(draftSaveRef.current);
     draftSaveRef.current = setTimeout(async () => {
-      await upsertDraft(currentDraftId, { title: buildDraftTitle(caseData), caseData, docCategories, extraNotes, generatedReport: report, linkedClaim });
+      await upsertDraft(currentDraftId, { title: buildDraftTitle(caseData), caseData, docCategories, extraNotes, generatedReport: report, legalIntelligence, linkedClaim });
       setLastSaved(new Date().toISOString());
       localStorage.setItem(CURRENT_DRAFT_KEY, currentDraftId);
       setDraftsList(null); // invalidate cached list so the picker re-fetches fresh order/title
@@ -549,6 +551,7 @@ function InvestigationReportTool() {
     setDocCategories(base);
     setExtraNotes(draft.extraNotes || "");
     setReport(draft.generatedReport || null);
+    setLegalIntelligence(draft.legalIntelligence || await AIService.getLegalIntelligence({ caseData: draft.caseData }));
     setLinkedClaim(draft.claimId ? await fetchClaimById(draft.claimId) : null);
     setCurrentDraftId(id);
     setLastSaved(draft.updatedAt);
@@ -558,7 +561,7 @@ function InvestigationReportTool() {
     localStorage.setItem(CURRENT_DRAFT_KEY, id);
   };
 
-  const newDraft = () => {
+  const newDraft = async () => {
     const id = genDraftId();
     setCaseData({...initialCase});
     setDocCategories(initialDocCategories());
@@ -573,6 +576,7 @@ function InvestigationReportTool() {
     setShowDraftPicker(false);
     setExpandedDocs({});
     localStorage.setItem(CURRENT_DRAFT_KEY, id);
+    setLegalIntelligence(await AIService.getLegalIntelligence({ caseData: initialCase }));
   };
 
   const deleteDraft = async (id) => {
@@ -713,6 +717,42 @@ function InvestigationReportTool() {
   const updateReportSection = (catKey, value) => { setUserEditedReport(true); setReport((r) => ({ ...r, sections: { ...r.sections, [catKey]: value } })); };
 
   const escapeHtml = (str) => (str || "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Shared across Word/PDF exports — a court-facing document only shows fabricated-free
+  // detail for modules a human or the AI engine has actually populated; Not Performed /
+  // Not Applicable rows show status only.
+  const legalIntelligenceRowsHtml = (modules, { fancy = false } = {}) => {
+    if (!modules?.length) return "";
+    return modules.map((m) => {
+      const showDetail = (m.status === "Completed" || m.status === "Pending Verification") && (m.summary || m.details);
+      const meta = [];
+      if (m.confidence) meta.push(`Confidence: ${escapeHtml(m.confidence)}`);
+      if (m.source) meta.push(`Source: ${escapeHtml(m.source)}`);
+      if (m.asOf) meta.push(`As of: ${escapeHtml(m.asOf)}`);
+      if (m.verifiedBy) meta.push(`Verified by: ${escapeHtml(m.verifiedBy)}`);
+      if (m.references?.length) meta.push(`References: ${escapeHtml(m.references.join(", "))}`);
+      const detail = showDetail
+        ? `<div style="margin-top:3px">${escapeHtml(m.summary||"")}${m.details?"<br/>"+escapeHtml(m.details):""}</div>${meta.length?`<div style="margin-top:2px;font-size:${fancy?"8.5pt":"9pt"};color:#777">${meta.join(" · ")}</div>`:""}`
+        : "";
+      const statusColor = m.status==="Completed"?"#3F6B4E":m.status==="Pending Verification"?"#8A6D2E":"#888";
+      return `<tr><td style="padding:5px 8px;border:1px solid ${fancy?"#E5E0D5":"#ccc"};font-weight:600;${fancy?"color:#1B2A4A;":""}vertical-align:top">${escapeHtml(m.moduleLabel)}</td><td style="padding:5px 8px;border:1px solid ${fancy?"#E5E0D5":"#ccc"};vertical-align:top"><span style="font-size:9pt;text-transform:uppercase;font-weight:600;color:${statusColor}">${escapeHtml(m.status)}</span>${detail}</td></tr>`;
+    }).join("");
+  };
+
+  const legalIntelligenceTextLines = (modules) => {
+    if (!modules?.length) return ["(not generated for this draft)"];
+    const lines = [];
+    modules.forEach((m) => {
+      lines.push(`- ${m.moduleLabel}: ${m.status}`);
+      const showDetail = (m.status === "Completed" || m.status === "Pending Verification") && (m.summary || m.details);
+      if (showDetail) {
+        if (m.summary) lines.push(`    ${m.summary}`);
+        if (m.details) lines.push(`    ${m.details}`);
+      }
+    });
+    return lines;
+  };
+
   const triggerDownload = (blob, filename) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = filename;
@@ -744,6 +784,7 @@ function InvestigationReportTool() {
   <h2>Findings</h2><p>${escapeHtml(report.findings).replace(/\n/g,"<br/>")}</p>
   <h2>Observations</h2><p>${escapeHtml(report.observations).replace(/\n/g,"<br/>")}</p>
   <h2>Conclusion</h2><p>${escapeHtml(report.conclusion).replace(/\n/g,"<br/>")}</p>
+  <h2>Legal &amp; Investigation Intelligence</h2><table>${legalIntelligenceRowsHtml(legalIntelligence?.modules)}</table>
   <p class="meta" style="margin-top:28px">AI-generated draft. Verify all content against source documents before issuing.</p>
 </body></html>`;
     triggerDownload(new Blob(["﻿", html], { type: "application/msword" }), `Investigation_Report_${caseData.claimNo || "draft"}.doc`);
@@ -764,6 +805,7 @@ function InvestigationReportTool() {
     if (report.redFlags?.length) { report.redFlags.forEach((rf) => lines.push(`- [${(rf.severity||"").toUpperCase()}] ${rf.flag}: ${rf.detail}`)); }
     else lines.push("No discrepancies flagged.");
     lines.push("", "FINDINGS", report.findings||"", "", "OBSERVATIONS", report.observations||"", "", "CONCLUSION", report.conclusion||"", "",
+      "LEGAL & INVESTIGATION INTELLIGENCE", ...legalIntelligenceTextLines(legalIntelligence?.modules), "",
       "AI-generated draft. Verify all content against source documents.");
     triggerDownload(new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" }), `Investigation_Report_${caseData.claimNo || "draft"}.txt`);
   };
@@ -822,6 +864,9 @@ function InvestigationReportTool() {
       <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Conclusion</h2>
       <p style="font-size:10.5pt;line-height:1.6;font-family:Calibri,Arial,sans-serif">${escapeHtml(report.conclusion).replace(/\n/g,"<br/>")}</p>
 
+      <h2 style="font-size:12pt;color:#1B2A4A;text-transform:uppercase;border-bottom:1px solid #E3DDD0;padding-bottom:4px;margin:18px 0 8px;font-family:Calibri,Arial,sans-serif">Legal &amp; Investigation Intelligence</h2>
+      <table style="width:100%;border-collapse:collapse;margin:6px 0 12px;font-size:9.5pt;font-family:Calibri,Arial,sans-serif">${legalIntelligenceRowsHtml(legalIntelligence?.modules, { fancy: true })}</table>
+
       <div style="margin-top:32px;border-top:1px solid #E3DDD0;padding-top:16px;display:flex;gap:40px">
         <div>
           <div style="font-size:9pt;color:#857F6E;margin-bottom:28px">Prepared by</div>
@@ -870,6 +915,21 @@ function InvestigationReportTool() {
       setDiagram(result);
     } catch (e) { setDiagramError("Could not generate diagram. Add more detail to FIR/panchnama."); }
     finally { setDiagramLoading(false); }
+  };
+
+  // Legal & Investigation Intelligence — permanent report section, placeholder until
+  // the Bima Anveshak AI Engine ships /ki/intelligence (see js/ai-service.js).
+  const [legalIntelligence, setLegalIntelligence] = useState(null);
+  const [legalIntelligenceLoading, setLegalIntelligenceLoading] = useState(false);
+  const [legalIntelligenceError, setLegalIntelligenceError] = useState(null);
+
+  const refreshLegalIntelligence = async () => {
+    setLegalIntelligenceLoading(true); setLegalIntelligenceError(null);
+    try {
+      const result = await AIService.getLegalIntelligence({ caseData });
+      setLegalIntelligence(result);
+    } catch (e) { setLegalIntelligenceError("Could not refresh Legal & Investigation Intelligence."); }
+    finally { setLegalIntelligenceLoading(false); }
   };
 
   const severityColor = (sev) => sev === "high" ? "#A8362B" : sev === "medium" ? "#B8762E" : "#6B7280";
@@ -1153,6 +1213,9 @@ function InvestigationReportTool() {
                   <EditableSection title="Observations" text={report.observations} onChange={(v)=>updateReportField("observations",v)} />
                   <EditableSection title="Conclusion" text={report.conclusion} onChange={(v)=>updateReportField("conclusion",v)} />
                 </div>
+
+                <LegalIntelligenceSection data={legalIntelligence} loading={legalIntelligenceLoading} error={legalIntelligenceError} onRefresh={refreshLegalIntelligence} />
+
                 <div style={{fontSize:10.5,fontFamily:"Inter",color:"#A6A595",marginTop:24,paddingTop:12,borderTop:"1px solid #E3DDD0",lineHeight:1.5}}>
                   AI-generated draft — editable above. Verify all translated content and conclusions against source documents before issuing.
                 </div>
@@ -1225,6 +1288,72 @@ function AccidentDiagram({ diagram, loading, error }) {
         {diagram.notes && <div style={{fontFamily:"Lora",fontSize:12.5,fontStyle:"italic",color:"#5A5546",marginTop:6,textAlign:"center"}}>{diagram.notes}</div>}
       </div>
       <div style={{fontSize:10.5,fontFamily:"Inter",color:"#A6A595",marginTop:6}}>Schematic from FIR/panchnama text — not a substitute for official spot panchnama.</div>
+    </div>
+  );
+}
+
+// Status pill styling — shared by the report preview and (later) admin/QC views.
+// Vocabulary is fixed to exactly these 4 values by the approved shared contract.
+const LEGAL_STATUS_STYLE = {
+  "Completed": { color: "#5A8266", label: "Completed" },
+  "Pending Verification": { color: "#B8762E", label: "Pending Verification" },
+  "Not Performed": { color: "#A6A595", label: "Not Performed" },
+  "Not Applicable": { color: "#C7C2B3", label: "Not Applicable" },
+};
+
+function ModuleCard({ module }) {
+  const [open, setOpen] = useState(false);
+  const style = LEGAL_STATUS_STYLE[module.status] || LEGAL_STATUS_STYLE["Not Performed"];
+  const hasDetail = (module.status === "Completed" || module.status === "Pending Verification")
+    && (module.summary || module.details);
+  return (
+    <div style={{borderBottom:"1px solid #EFEAE0",padding:"9px 0"}}>
+      <div
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:hasDetail?"pointer":"default"}}
+      >
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          {hasDetail && (open ? <Icon.ChevronDown size={12} color="#857F6E" /> : <Icon.ChevronRight size={12} color="#857F6E" />)}
+          <span style={{fontFamily:"Inter",fontSize:12.5,fontWeight:600,color:"#1B2A4A",fontStyle:module.status==="Not Applicable"?"italic":"normal"}}>{module.moduleLabel}</span>
+        </div>
+        <span style={{fontFamily:"Inter",fontSize:9.5,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:style.color,border:`1px solid ${style.color}`,borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>{style.label}</span>
+      </div>
+      {open && hasDetail && (
+        <div style={{marginTop:8,paddingLeft:19,fontFamily:"Lora",fontSize:12.5,color:"#3A3528",lineHeight:1.55}}>
+          {module.summary && <div>{module.summary}</div>}
+          {module.details && <div style={{marginTop:4,color:"#5A5546"}}>{module.details}</div>}
+          <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:"4px 14px",fontFamily:"Inter",fontSize:10.5,color:"#A6A595"}}>
+            {module.confidence && <span>Confidence: {module.confidence}</span>}
+            {module.source && <span>Source: {module.source}</span>}
+            {module.asOf && <span>As of: {module.asOf}</span>}
+            {module.verifiedBy && <span>Verified by: {module.verifiedBy}</span>}
+          </div>
+          {module.references?.length > 0 && <div style={{marginTop:4,fontFamily:"Inter",fontSize:10.5,color:"#A6A595"}}>References: {module.references.join(", ")}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LegalIntelligenceSection({ data, loading, error, onRefresh }) {
+  return (
+    <div style={{marginTop:24,paddingTop:14,borderTop:"2px solid #1B2A4A"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+        <div style={{fontFamily:"Inter",fontSize:11.5,fontWeight:700,letterSpacing:"0.04em",color:"#1B2A4A",textTransform:"uppercase"}}>Legal &amp; Investigation Intelligence</div>
+        <button className="ir-btn-ghost" onClick={onRefresh} disabled={loading}>
+          {loading ? <Icon.Loader2 size={12} /> : <Icon.Sparkles size={12} />}
+          Refresh
+        </button>
+      </div>
+      <div style={{fontSize:11.5,fontFamily:"Inter",color:"#A6A595",marginBottom:10}}>
+        Reserved for the Bima Anveshak AI Engine — each module below will populate automatically once that integration ships.
+      </div>
+      {error && <div style={{marginBottom:10,padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:12,fontFamily:"Inter",color:"#A8362B"}}>{error}</div>}
+      {data?.modules ? (
+        <div>{data.modules.map((m) => <ModuleCard key={m.moduleId} module={m} />)}</div>
+      ) : (
+        <div style={{fontSize:12.5,fontFamily:"Inter",color:"#A6A595",fontStyle:"italic"}}>Not yet generated for this draft — click Refresh.</div>
+      )}
     </div>
   );
 }
