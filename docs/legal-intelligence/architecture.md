@@ -1,6 +1,6 @@
 # Legal & Investigation Intelligence Engine — Architecture (v1.0)
 
-**Status: Frozen.** This document describes the architecture as shipped in v1.0. Changes to anything described here require v1.1 planning, not incremental edits.
+**Status: Frozen.** This document describes the architecture as shipped in v1.0. Changes to anything described here require v1.1 planning, not incremental edits. **v1.1 added one module** (Investigation Decision Engine) via one deliberate, documented structural addition — see [§9](#9-v11-addition--investigation-decision-engine-synthesis-pass) at the end of this document. Everything above that section is exactly as it read at the v1.0 freeze.
 
 ## 1. What this is
 
@@ -142,3 +142,21 @@ Full per-module detail: [Module Documentation](module-documentation.md).
 - A manual-review workflow UI (setting `verifiedBy`/`manualReview`/moving a module to `"Completed"`) — the contract supports it; no UI exists to drive it yet.
 - Cross-module data sharing (e.g., Risk Assessment reading Cross Verification Summary's output) — every module in v1.0 operates independently on `docsText` alone, by design (Section 6, principle 1).
 - Rich-media evidence rendering (`evidence[]` with `kind: "audio"/"video"/"map"`) — the contract supports it; `ModuleCard` does not yet render `evidence` items at all (only `references`).
+
+## 9. v1.1 addition — Investigation Decision Engine (synthesis pass)
+
+Section 8 above named this exact gap: "Cross-module data sharing... every module in v1.0 operates independently on `docsText` alone, by design." The Investigation Decision Engine (module 13, `investigationDecisionEngine`) is the first module that needs the opposite — it must consume the *other* modules' resolved output and must never see `docsText` at all. Section 6's principle 1 (independence, no shared state) still holds for it in spirit: it doesn't mutate or depend on any module's *internal* state, only their finished, public `ModuleRecord` output, and its own failure still can't affect any other module (Design principle 1 is about failure isolation, which this preserves).
+
+This could not be built as a 14th entry in `_MODULE_IMPLEMENTATIONS` (Section 3) without breaking that map's contract: every entry there is called with `{docsText}`, concurrently, inside one `Promise.all`, with no module ever seeing another's result. Handing a synthesis module `docsText` would be exactly the thing its own design must not do, and the concurrency means no module in that map could see a sibling's *resolved* output even if it wanted to — synthesis requires a genuine second pass, not a routine new entry (this was flagged, unprompted, in `v1.0-RELEASE-HANDOVER.md` §11 item 7 before this module existed).
+
+**What actually changed** (all in `js/ai-service.js`):
+
+- A second dispatch map, `_SYNTHESIS_MODULE_IMPLEMENTATIONS` — currently one entry, `investigationDecisionEngine`. Separate from `_MODULE_IMPLEMENTATIONS`, which is untouched.
+- `getLegalIntelligence()` runs a second pass *after* its original `Promise.all` resolves: for each registry-enabled module_id found in `_SYNTHESIS_MODULE_IMPLEMENTATIONS`, it calls that module with `{ modules }` — the first pass's resolved array — and replaces that module's placeholder entry in place. Sequential (not `Promise.all`), in registry `sort_order`, so a *second* future synthesis module would see the first one's output too.
+- Nothing else moved. Registry schema, the `report_drafts.legal_intelligence` column, `ModuleCard`, `LegalIntelligenceSection`, and both export functions are byte-for-byte unchanged (`git diff --stat report.html` is empty for this addition) — the module still returns an ordinary 14-field `ModuleRecord`, so Layer 3 renders it exactly like any other module without knowing anything special happened upstream.
+
+**Why this doesn't weaken the independence guarantee**: `_MODULE_IMPLEMENTATIONS`'s 9 (and any future document-based) modules still run exactly as before — concurrent, isolated, `docsText`-only. The new second pass only ever *reads* their finished output; it cannot alter it, delay it, or fail into it (a `try/catch` around the second pass mirrors the first pass's per-module isolation). A document-based module added tomorrow needs zero awareness that a synthesis pass exists.
+
+**Enforcement note, stated plainly rather than left implicit**: as with the rest of this contract (Section 4), "never reads raw documents" is enforced by the compute function's parameter shape (it is simply never given `docsText`) plus code review, not by a language-level module boundary — this is a plain browser script with no import isolation, same posture the whole engine already has. `tests/test-investigation-decision-engine.js` includes a test that captures the actual outbound prompt and asserts it never contains injected document text, so this is a tested property, not only a structural intention.
+
+Full detail: [v1.1 Decision Engine Handover](v1.1-DECISION-ENGINE-HANDOVER.md).

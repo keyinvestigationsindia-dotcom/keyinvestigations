@@ -104,6 +104,21 @@ Every prompt:
 
 All three currently resolve as `status: "Not Performed"` placeholders — no logic beyond the standard `_emptyModuleRecord()`.
 
+## 13. Investigation Decision Engine (v1.1 — synthesis module)
+
+- **Question**: given everything the other modules found, what's the investigation recommendation — is the evidence sufficient, what's missing, and what should happen next?
+- **Input**: *not* `docsText` — the only module for which this is true. Reads the other modules' already-resolved `ModuleRecord[]` (`moduleLabel`/`status`/`summary`/`details`/`references`), generically, so any module present at run time is automatically considered — see [Architecture §9](architecture.md#9-v11-addition--investigation-decision-engine-synthesis-pass) for why this required a second dispatch pass rather than a `_MODULE_IMPLEMENTATIONS` entry.
+- **Response shape**: `{ executiveSummary, decisionStatus, keyFindings: [{finding, supportingModules}], supportingEvidence: [{point, supportingModules}], contradictions: [{description, severity, supportingModules}], missingEvidence: [{item, impact}], investigatorRecommendations: [{recommendation, supportingModules}], furtherActionsRequired: [{action, priority}], humanReviewRequired, confidence }` — **own shape**, and the first module whose response maps *itself* onto other fields of the contract, not just `summary`/`details`:
+  - `confidence` → Confidence Score (direct).
+  - `humanReviewRequired` → `manualReview` — the first module to ever set this `true` under real conditions; all 9 others always report `false`.
+  - `decisionStatus` (`"Sufficient Evidence" | "Requires Further Investigation" | "Insufficient Evidence"`) is new prose, prefixed onto `summary` — deliberately *not* the same thing as the record's own 4-value `status` field, which keeps its existing meaning (did this module's own AI call succeed) for every module including this one.
+  - `keyFindings`/`supportingEvidence`/`contradictions`/`missingEvidence`/`investigatorRecommendations`/`furtherActionsRequired` become labeled sections inside `details`.
+  - `references` = every module name actually cited in any `supportingModules` array anywhere in the response — deduplicated the same way every other module derives `references` from its own per-item source fields, so "every recommendation cites its supporting module(s)" is a checkable property of the stored record, not just a prompt instruction.
+- **Compute function**: `_computeInvestigationDecisionEngine` (own implementation, `js/ai-service.js`).
+- **Empty state**: if every other module is still a placeholder (`"Not Performed"`/`"Not Applicable"`) — nobody has clicked Refresh with real documents yet — this module short-circuits to its own placeholder *before* building a prompt or spending an AI call. There is honestly nothing to synthesise yet; this is not treated as a failure.
+- **Hard boundaries** (all enforced in the prompt, same imperative style as every other module's prompt): never invents a fact not present in the modules fed in; every finding/recommendation must name its supporting module(s); no legal advice; no medical opinion; never states whether a claim should be approved or rejected — produces an investigation recommendation only, the insurer makes the final decision.
+- **Distinct from**: every other module reasons over raw case documents. This is the only module that reasons over the *other modules' conclusions* — it is a synthesis layer, not another independent lens on the same source text.
+
 ## Quick reference: which modules share `_computeChecksAndDiscrepancies`
 
 Vehicle, Person, Medical, Digital Evidence, Cross Verification Summary — 5 of the 9 implemented modules. Each supplies only its own prompt builder and two message strings (`emptyMessage`, `tooLongMessage`); the parsing, formatting, `references` deduplication, and record assembly are shared, not duplicated. See [Developer Guide](developer-guide.md) for how to decide which pattern a new module should follow.

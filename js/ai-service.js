@@ -776,6 +776,134 @@ const _MODULE_IMPLEMENTATIONS = {
   investigatorAlerts: _computeInvestigatorAlerts,
 };
 
+// ── Investigation Decision Engine (v1.1 addition — synthesis pass) ──
+// Unlike every module above, this one must never read docsText — only the
+// OTHER modules' already-computed output. It is deliberately NOT registered
+// in _MODULE_IMPLEMENTATIONS: that map's dispatch loop only ever hands a
+// module {docsText}, and giving a synthesis module that parameter would be
+// the one thing the design must not do. Instead it lives in its own map,
+// _SYNTHESIS_MODULE_IMPLEMENTATIONS below, run as a second pass by
+// getLegalIntelligence() AFTER the first pass resolves — see that function
+// for why this needs to be a second pass rather than an entry in the first.
+
+// Formats resolved ModuleRecords as plain-text blocks for the synthesis
+// prompt. Loops `modules` generically — never names a specific module_id —
+// so a future 11th document-based module is included automatically the next
+// time this runs, with no change needed here or in the prompt below.
+function _formatModulesForSynthesis(modules) {
+  return (modules || [])
+    .filter((m) => m.status !== "Not Performed" && m.status !== "Not Applicable")
+    .map((m) => {
+      const refs = (m.references || []).join(", ") || "none stated";
+      return `=== ${m.moduleLabel} (${m.status}) ===\nSummary: ${m.summary || "(none)"}\nDetails: ${m.details || "(none)"}\nCites: ${refs}`;
+    })
+    .join("\n\n");
+}
+
+function _buildInvestigationDecisionEnginePrompt(modulesText) {
+  return `You are synthesising a final investigation recommendation for an Indian motor insurance (MACT) investigation, based ONLY on the structured findings already produced by other intelligence modules below — you have no access to the original case documents, only these modules' own summaries. You are not a legal authority, not a medical authority, and you do not approve or reject claims — only the insurer makes that decision. You only produce an investigation recommendation for the insurer to consider.
+
+Rules:
+- Never invent a fact, finding, or number that isn't stated in the module output below.
+- Every finding, piece of evidence, contradiction, and recommendation you list MUST name which module(s) it came from (use the exact module names as given below).
+- Do not give legal advice. Do not give a medical opinion. Do not state whether the claim should be approved or rejected — only whether the evidence is sufficient, and what further investigation (if any) is needed.
+- If the modules below don't support a conclusion, say so rather than guessing.
+
+MODULE OUTPUT (this is your only source of information):
+${modulesText}
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "executiveSummary": "2-4 sentence plain-language overview of what the evidence shows so far",
+  "decisionStatus": "Sufficient Evidence" or "Requires Further Investigation" or "Insufficient Evidence",
+  "keyFindings": [{"finding": "plain-language finding", "supportingModules": ["exact module name(s)"]}],
+  "supportingEvidence": [{"point": "what supports the case", "supportingModules": ["exact module name(s)"]}],
+  "contradictions": [{"description": "plain-language contradiction", "severity": "high|medium|low", "supportingModules": ["exact module name(s)"]}],
+  "missingEvidence": [{"item": "what's missing or unresolved", "impact": "why it matters"}],
+  "investigatorRecommendations": [{"recommendation": "what the investigator should do next", "supportingModules": ["exact module name(s)"]}],
+  "furtherActionsRequired": [{"action": "concrete next step", "priority": "high|medium|low"}],
+  "humanReviewRequired": true or false,
+  "confidence": "high|medium|low"
+}`;
+}
+
+// Signature is deliberately { modules } — there is no docsText parameter for
+// this function to misuse, even accidentally. That is what makes "never
+// reads raw documents directly" a structural fact rather than a convention.
+async function _computeInvestigationDecisionEngine({ modules }, { onStatus } = {}) {
+  const usable = (modules || []).filter((m) => m.status !== "Not Performed" && m.status !== "Not Applicable");
+  if (usable.length === 0) {
+    // Nothing to synthesise yet (no other module has real data) — resolve as
+    // a placeholder without spending an AI call on an empty synthesis.
+    return _emptyModuleRecord(null, null);
+  }
+
+  const modulesText = _formatModulesForSynthesis(modules);
+  const prompt = _buildInvestigationDecisionEnginePrompt(modulesText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 2500, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Investigation decision too long — try refreshing with fewer modules populated." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid investigation decision response shape");
+
+  // Defensive: an off-spec AI response degrades to empty sections rather
+  // than throwing — same posture as every module above.
+  const keyFindings = Array.isArray(parsed.keyFindings) ? parsed.keyFindings : [];
+  const supportingEvidence = Array.isArray(parsed.supportingEvidence) ? parsed.supportingEvidence : [];
+  const contradictions = Array.isArray(parsed.contradictions) ? parsed.contradictions : [];
+  const missingEvidence = Array.isArray(parsed.missingEvidence) ? parsed.missingEvidence : [];
+  const investigatorRecommendations = Array.isArray(parsed.investigatorRecommendations) ? parsed.investigatorRecommendations : [];
+  const furtherActionsRequired = Array.isArray(parsed.furtherActionsRequired) ? parsed.furtherActionsRequired : [];
+
+  const section = (title, lines) => (lines.length ? `${title}:\n${lines.join("\n")}` : "");
+  const details = [
+    section("KEY FINDINGS", keyFindings.map((f) => `- ${f.finding || "(unspecified)"} (${(f.supportingModules || []).join(", ") || "source not stated"})`)),
+    section("SUPPORTING EVIDENCE", supportingEvidence.map((e) => `- ${e.point || "(unspecified)"} (${(e.supportingModules || []).join(", ") || "source not stated"})`)),
+    section("CONTRADICTIONS", contradictions.map((c) => `[${(c.severity || "").toUpperCase()}] ${c.description || "(unspecified)"} (${(c.supportingModules || []).join(", ") || "source not stated"})`)),
+    section("MISSING EVIDENCE", missingEvidence.map((m) => `- ${m.item || "(unspecified)"} — ${m.impact || "impact not stated"}`)),
+    section("INVESTIGATOR RECOMMENDATIONS", investigatorRecommendations.map((r) => `- ${r.recommendation || "(unspecified)"} (${(r.supportingModules || []).join(", ") || "source not stated"})`)),
+    section("FURTHER ACTIONS REQUIRED", furtherActionsRequired.map((a) => `[${(a.priority || "").toUpperCase()}] ${a.action || "(unspecified)"}`)),
+  ].filter(Boolean).join("\n\n");
+
+  // "Decision Status" is new prose vocabulary living inside `summary` —
+  // deliberately NOT the same thing as the record's own `status` field
+  // (which keeps its existing, different meaning: whether this module's own
+  // AI call succeeded, same as every other module).
+  const decisionStatus = typeof parsed.decisionStatus === "string" && parsed.decisionStatus.trim()
+    ? parsed.decisionStatus.trim()
+    : "Requires Further Investigation";
+  const summary = `Decision Status: ${decisionStatus}. ${parsed.executiveSummary || "No executive summary produced."}`;
+
+  // references = every distinct module actually cited anywhere above — this
+  // is what makes "every recommendation must cite supporting modules" a
+  // checkable fact about the stored record, not just a prompt instruction.
+  const references = [...new Set([
+    ...keyFindings.flatMap((f) => f.supportingModules || []),
+    ...supportingEvidence.flatMap((e) => e.supportingModules || []),
+    ...contradictions.flatMap((c) => c.supportingModules || []),
+    ...investigatorRecommendations.flatMap((r) => r.supportingModules || []),
+  ].filter(Boolean))];
+
+  return {
+    status: "Pending Verification",
+    summary,
+    details: details || null,
+    confidence: parsed.confidence || null,
+    source: "Synthesised from other Legal & Investigation Intelligence modules",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: parsed.humanReviewRequired === true,
+    evidence: [],
+    references,
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
+const _SYNTHESIS_MODULE_IMPLEMENTATIONS = {
+  investigationDecisionEngine: _computeInvestigationDecisionEngine,
+};
+
 // FUTURE — not built yet, documented so it can be lifted verbatim into
 // bima-anveshak-ai/apps/ai-services/routers/ once the v1.0 feature freeze lifts:
 //
@@ -863,6 +991,28 @@ const AIService = {
       }
       return _emptyModuleRecord(m.module_id, m.module_label);
     }));
+
+    // Second pass — synthesis modules (v1.1 addition: Investigation Decision
+    // Engine). These consume the FIRST pass's already-resolved `modules`
+    // array, never docsText — see _SYNTHESIS_MODULE_IMPLEMENTATIONS above.
+    // Run sequentially in registry sort_order (not Promise.all) so a future
+    // second synthesis module could see an earlier one's output too; today
+    // there is only one, so this just establishes the rule ahead of needing
+    // it. A synthesis module's own registry row already resolved as a
+    // placeholder in the first pass above — replace that entry in place.
+    for (const m of registry) {
+      const impl = _SYNTHESIS_MODULE_IMPLEMENTATIONS[m.module_id];
+      if (!impl) continue;
+      const idx = modules.findIndex((rec) => rec.moduleId === m.module_id);
+      try {
+        const record = await impl({ modules }, { onStatus });
+        modules[idx] = { ...record, moduleId: m.module_id, moduleLabel: m.module_label };
+      } catch (e) {
+        console.error(`Legal intelligence synthesis module "${m.module_id}" failed, showing placeholder:`, e);
+        modules[idx] = _emptyModuleRecord(m.module_id, m.module_label);
+      }
+    }
+
     return {
       schemaVersion: LEGAL_INTELLIGENCE_SCHEMA_VERSION,
       generatedAt: new Date().toISOString(),
