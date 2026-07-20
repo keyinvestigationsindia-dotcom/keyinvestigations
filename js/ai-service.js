@@ -665,6 +665,105 @@ async function _computeAIInvestigationFindings({ docsText }, { onStatus } = {}) 
   };
 }
 
+// Own shape again (riskLevel + weighted factors) — riskLevel is folded into the plain
+// summary/details text rather than a new field, since the frozen contract has no
+// dedicated "score" field and none is being added.
+function _buildRiskAssessmentPrompt(docsText) {
+  return `You are identifying standard, well-known fraud/risk indicators for an Indian motor insurance (MACT) investigation, purely from what the provided documents explicitly state — you are not making a fraud determination, only surfacing factors an investigator would want to weigh, each grounded in the text.
+
+From the case document text below, look for well-established risk indicators such as: unexplained delay in lodging the FIR, absence of independent eyewitnesses, conflicting statements between parties, income or age claims unsupported by documentary proof, or discrepancies already evident in the text. Only cite a factor the text actually supports — never infer motive or guilt, and never invent a factor that isn't grounded in what's written. If nothing in the text supports any risk factor, say the risk level is low for lack of evidence otherwise, not because the case has been cleared.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "riskLevel": "low|medium|high",
+  "factors": [{"factor": "plain-language risk factor", "weight": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeRiskAssessment({ docsText }, { onStatus } = {}) {
+  const prompt = _buildRiskAssessmentPrompt(docsText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 1500, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Risk assessment too long — try including fewer documents." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid risk assessment response shape");
+
+  const factors = Array.isArray(parsed.factors) ? parsed.factors : [];
+  const riskLevel = ["low", "medium", "high"].includes((parsed.riskLevel || "").toLowerCase()) ? parsed.riskLevel.toLowerCase() : null;
+  const factorLines = factors.map((f) => `[${(f.weight || "").toUpperCase()}] ${f.factor || "(unspecified factor)"} (${f.source || "source not stated"})`).join("\n");
+  const summary = riskLevel
+    ? `Overall risk level: ${riskLevel}. ${factors.length} factor${factors.length === 1 ? "" : "s"} identified.`
+    : "No risk level could be determined from the provided documents.";
+  const references = [...new Set(factors.map((f) => f.source).filter(Boolean))];
+
+  return {
+    status: "Pending Verification",
+    summary,
+    details: factorLines || null,
+    confidence: parsed.confidence || null,
+    source: "AI-extracted from uploaded case documents",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: false,
+    evidence: [],
+    references,
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
+// Alerts flag ABSENCE, not a fact drawn from a document — "checkedIn" grounds the claim
+// in what was actually reviewed and found silent, rather than an unsupported guess.
+function _buildInvestigatorAlertsPrompt(docsText) {
+  return `You are checking for STANDARD investigative steps or documents that appear to be missing or incomplete, for an Indian motor insurance (MACT) investigation, purely from what is and isn't present in the provided text — you are not making a legal judgment, only flagging gaps a thorough investigation would normally want to close.
+
+From the case document text below, identify standard items that appear absent or incomplete — for example: no statement from the TP driver, no independent eyewitness statement, no photographic evidence of vehicle damage, no explanation given for a stated delay, or a document referenced elsewhere but not itself included. Only flag an absence you can actually confirm from what's given.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "alerts": [{"alert": "plain-language description of what's missing or incomplete", "priority": "high|medium|low", "checkedIn": "which document(s) were reviewed and found silent on this"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeInvestigatorAlerts({ docsText }, { onStatus } = {}) {
+  const prompt = _buildInvestigatorAlertsPrompt(docsText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 1500, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Investigator alerts too long — try including fewer documents." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid investigator alerts response shape");
+
+  const alerts = Array.isArray(parsed.alerts) ? parsed.alerts : [];
+  const alertLines = alerts.map((a) => `[${(a.priority || "").toUpperCase()}] ${a.alert || "(unspecified alert)"} (checked: ${a.checkedIn || "not stated"})`).join("\n");
+  const summary = alerts.length === 0
+    ? "No procedural gaps identified from the provided documents."
+    : `${alerts.length} item${alerts.length === 1 ? "" : "s"} flagged for investigator follow-up.`;
+  const references = [...new Set(alerts.map((a) => a.checkedIn).filter(Boolean))];
+
+  return {
+    status: "Pending Verification",
+    summary,
+    details: alertLines || null,
+    confidence: parsed.confidence || null,
+    source: "AI-extracted from uploaded case documents",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: false,
+    evidence: [],
+    references,
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
 const _MODULE_IMPLEMENTATIONS = {
   timelineIntelligence: _computeTimelineIntelligence,
   vehicleIntelligence: _computeVehicleIntelligence,
@@ -673,6 +772,8 @@ const _MODULE_IMPLEMENTATIONS = {
   digitalEvidenceIntelligence: _computeDigitalEvidenceIntelligence,
   crossVerificationSummary: _computeCrossVerificationSummary,
   aiInvestigationFindings: _computeAIInvestigationFindings,
+  riskAssessment: _computeRiskAssessment,
+  investigatorAlerts: _computeInvestigatorAlerts,
 };
 
 // FUTURE — not built yet, documented so it can be lifted verbatim into
