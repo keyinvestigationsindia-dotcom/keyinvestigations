@@ -390,14 +390,23 @@ async function _computeTimelineIntelligence({ docsText }, { onStatus } = {}) {
     prompt, max_tokens: 2000, model_tier: "fast",
   }, { onStatus }), onStatus);
   const parsed = await _parseJsonContent(response, { maxTokensMessage: "Timeline too long — try including fewer documents." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid timeline response shape");
 
-  const events = parsed.events || [];
-  const anomalies = parsed.anomalies || [];
-  const eventLines = events.map((e) => `${e.date} — ${e.event} (${e.source})`).join("\n");
+  // Defensive: an off-spec AI response (wrong type, missing keys) degrades to "no
+  // events found" rather than throwing — a malformed response should never crash
+  // the module dispatch loop above this.
+  const events = Array.isArray(parsed.events) ? parsed.events : [];
+  const anomalies = Array.isArray(parsed.anomalies) ? parsed.anomalies : [];
+  const eventLines = events.map((e) => `${e.date || "(date unclear)"} — ${e.event || "unlabeled event"} (${e.source || "source not stated"})`).join("\n");
   const anomalyLines = anomalies.map((a) => `[${(a.severity || "").toUpperCase()}] ${a.description}`).join("\n");
-  const summary = anomalies.length
-    ? `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; ${anomalies.length} inconsistenc${anomalies.length === 1 ? "y" : "ies"} flagged.`
-    : `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; no inconsistencies flagged.`;
+  const summary = events.length === 0
+    ? "No dated events found in the provided documents."
+    : anomalies.length
+      ? `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; ${anomalies.length} inconsistenc${anomalies.length === 1 ? "y" : "ies"} flagged.`
+      : `${events.length} dated event${events.length === 1 ? "" : "s"} reconstructed; no inconsistencies flagged.`;
+  // Which source documents actually contributed a dated event — a real, non-fabricated
+  // cross-reference back to what was fed in.
+  const references = [...new Set(events.map((e) => e.source).filter(Boolean))];
 
   return {
     // Not "Completed" — this is fresh AI output nobody has reviewed yet. Only a human
@@ -411,7 +420,7 @@ async function _computeTimelineIntelligence({ docsText }, { onStatus } = {}) {
     verifiedBy: null,
     manualReview: false,
     evidence: [],
-    references: [],
+    references,
     lastUpdated: new Date().toISOString(),
     version: 1,
   };
