@@ -583,12 +583,96 @@ async function _computeDigitalEvidenceIntelligence({ docsText }, { onStatus } = 
   });
 }
 
+// Scoped to the "incident narrative" document cluster (FIR/Panchnama/DAR/Site Map/
+// Chargesheet) specifically — deliberately distinct from Vehicle (vehicle facts),
+// Person (identity), and Medical (medical facts), which each own their own domain.
+function _buildCrossVerificationSummaryPrompt(docsText) {
+  return `You are cross-checking whether the INCIDENT NARRATIVE — what happened, where, and how — is told consistently across the documents that each independently describe the accident scene, for an Indian motor insurance (MACT) investigation. You are not a legal authority; you can only compare what the provided text itself states.
+
+From the case document text below — which may include FIR, Spot Panchnama, DAR (Detailed Accident Report), Site Map / Police Sketch, and Chargesheet — cross-check the core narrative facts: location of accident, date/time, manner of collision, and which vehicles/parties are described as involved, wherever two or more of these documents describe the same incident.
+
+1. List each cross-check you can actually perform from the text given.
+2. Flag any discrepancy the text actually supports (e.g. accident location differs between FIR and Spot Panchnama, manner of collision described differently between DAR and Chargesheet) — only flag what is explicitly stated, never infer or guess.
+3. If one of these documents isn't present in the text, say so rather than assuming its content.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeCrossVerificationSummary({ docsText }, { onStatus } = {}) {
+  return _computeChecksAndDiscrepancies(_buildCrossVerificationSummaryPrompt, docsText, {
+    emptyMessage: "No incident-narrative documents found to cross-check.",
+    tooLongMessage: "Cross verification too long — try including fewer documents.",
+    onStatus,
+  });
+}
+
+// Distinct response shape from the checks/discrepancies modules above — this evaluates
+// evidence QUALITY/RELIABILITY (single-source vs corroborated, internally thin
+// statements), not pairwise document facts. Deliberately does not restate the main
+// report's own findings/observations/conclusion — a different lens, not a duplicate.
+function _buildAIInvestigationFindingsPrompt(docsText) {
+  return `You are reviewing case documents for an Indian motor insurance (MACT) investigation to surface findings about the QUALITY and RELIABILITY of the evidence presented — not to restate what happened (that belongs in the main report's own findings), and not a legal opinion — purely observations the text itself supports.
+
+From the case document text below, identify findings such as: whether an account is corroborated by more than one independent source or rests on a single interested party, whether two documents describing the same event differ in a way worth noting, or whether a document's own content raises a question (e.g. a statement is unusually brief, a report gives no explanation for something it would normally explain). Only report what the text actually shows — never speculate about intent, fraud, or guilt, and never invent a finding the text doesn't support.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "findings": [{"observation": "plain-language finding", "significance": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeAIInvestigationFindings({ docsText }, { onStatus } = {}) {
+  const prompt = _buildAIInvestigationFindingsPrompt(docsText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 2000, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Findings too long — try including fewer documents." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid findings response shape");
+
+  const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+  const findingLines = findings.map((f) => `[${(f.significance || "").toUpperCase()}] ${f.observation || "(no observation stated)"} (${f.source || "source not stated"})`).join("\n");
+  const summary = findings.length === 0
+    ? "No notable evidence-quality findings beyond what's already in the report narrative."
+    : `${findings.length} finding${findings.length === 1 ? "" : "s"} noted.`;
+  const references = [...new Set(findings.map((f) => f.source).filter(Boolean))];
+
+  return {
+    status: "Pending Verification",
+    summary,
+    details: findingLines || null,
+    confidence: parsed.confidence || null,
+    source: "AI-extracted from uploaded case documents",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: false,
+    evidence: [],
+    references,
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
 const _MODULE_IMPLEMENTATIONS = {
   timelineIntelligence: _computeTimelineIntelligence,
   vehicleIntelligence: _computeVehicleIntelligence,
   personIntelligence: _computePersonIntelligence,
   medicalIntelligence: _computeMedicalIntelligence,
   digitalEvidenceIntelligence: _computeDigitalEvidenceIntelligence,
+  crossVerificationSummary: _computeCrossVerificationSummary,
+  aiInvestigationFindings: _computeAIInvestigationFindings,
 };
 
 // FUTURE — not built yet, documented so it can be lifted verbatim into
