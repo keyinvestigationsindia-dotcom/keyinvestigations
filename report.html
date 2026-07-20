@@ -729,7 +729,7 @@ function InvestigationReportTool() {
   // detail for modules a human or the AI engine has actually populated; Not Performed /
   // Not Applicable rows show status only.
   const legalIntelligenceRowsHtml = (modules, { fancy = false } = {}) => {
-    if (!modules?.length) return "";
+    if (!Array.isArray(modules) || !modules.length) return "";
     return modules.map((m) => {
       const showDetail = (m.status === "Completed" || m.status === "Pending Verification") && (m.summary || m.details);
       const meta = [];
@@ -747,7 +747,7 @@ function InvestigationReportTool() {
   };
 
   const legalIntelligenceTextLines = (modules) => {
-    if (!modules?.length) return ["(not generated for this draft)"];
+    if (!Array.isArray(modules) || !modules.length) return ["(not generated for this draft)"];
     const lines = [];
     modules.forEach((m) => {
       lines.push(`- ${m.moduleLabel}: ${m.status}`);
@@ -1366,7 +1366,7 @@ function LegalIntelligenceSection({ data, loading, error, onRefresh }) {
         Reserved for the Bima Anveshak AI Engine — each module below will populate automatically once that integration ships.
       </div>
       {error && <div style={{marginBottom:10,padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:12,fontFamily:"Inter",color:"#A8362B"}}>{error}</div>}
-      {data?.modules ? (
+      {Array.isArray(data?.modules) ? (
         <div>{data.modules.map((m) => <ModuleCard key={m.moduleId} module={m} />)}</div>
       ) : (
         <div style={{fontSize:12.5,fontFamily:"Inter",color:"#A6A595",fontStyle:"italic"}}>Not yet generated for this draft — click Refresh.</div>
