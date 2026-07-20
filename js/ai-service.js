@@ -426,8 +426,69 @@ async function _computeTimelineIntelligence({ docsText }, { onStatus } = {}) {
   };
 }
 
+function _buildVehicleIntelligencePrompt(docsText) {
+  return `You are cross-verifying vehicle-related facts for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not a legal authority and have no access to any external registry (VAHAN, RTO, etc.); you can only compare what the provided text itself states.
+
+From the case document text below — which may include RC, Permit, Fitness Certificate, Insurance Policy, MVI/Mechanical Inspection Report, TP Vehicle Details, Spot Panchnama, FIR, and Chargesheet — cross-check vehicle facts such as: registration number, owner name, permit type/validity, fitness certificate validity, insurance policy period/coverage, and vehicle description, wherever two or more documents mention the same vehicle.
+
+1. List each cross-check you can actually perform from the text given (e.g. "registration number as per FIR vs. RC").
+2. Flag any discrepancy the text actually supports (e.g. registration number differs between two documents, permit or fitness certificate expired before the accident date, policy period doesn't cover the accident date) — only flag what is explicitly stated, never infer or guess a value that isn't written.
+3. If a relevant document isn't present in the text, or a fact isn't stated, say so rather than assuming a value.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeVehicleIntelligence({ docsText }, { onStatus } = {}) {
+  const prompt = _buildVehicleIntelligencePrompt(docsText);
+  const response = await _runQueued(() => _request("/ki/completion", {
+    prompt, max_tokens: 2000, model_tier: "fast",
+  }, { onStatus }), onStatus);
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Vehicle cross-check too long — try including fewer documents." });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid vehicle intelligence response shape");
+
+  const checks = Array.isArray(parsed.checks) ? parsed.checks : [];
+  const discrepancies = Array.isArray(parsed.discrepancies) ? parsed.discrepancies : [];
+  const checkLines = checks.map((c) => `${c.item || "check"}: ${c.result || "(no result stated)"} (${c.source || "source not stated"})`).join("\n");
+  const discrepancyLines = discrepancies.map((d) => `[${(d.severity || "").toUpperCase()}] ${d.description} (${d.source || "source not stated"})`).join("\n");
+  const summary = (checks.length === 0 && discrepancies.length === 0)
+    ? "No vehicle-related documents found to cross-check."
+    : discrepancies.length
+      ? `${checks.length} cross-check${checks.length === 1 ? "" : "s"} performed; ${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} flagged.`
+      : `${checks.length} cross-check${checks.length === 1 ? "" : "s"} performed; no discrepancies flagged.`;
+  // Which source documents actually contributed a check or discrepancy — a real,
+  // non-fabricated cross-reference back to what was fed in.
+  const references = [...new Set([...checks.map((c) => c.source), ...discrepancies.map((d) => d.source)].filter(Boolean))];
+
+  return {
+    // Not "Completed" — this is fresh AI output nobody has reviewed yet. Only a human
+    // marking it reviewed (manualReview/verifiedBy) should ever move it to Completed.
+    status: "Pending Verification",
+    summary,
+    details: [checkLines, discrepancyLines].filter(Boolean).join("\n\n") || null,
+    confidence: parsed.confidence || null,
+    source: "AI-extracted from uploaded case documents",
+    asOf: new Date().toISOString(),
+    verifiedBy: null,
+    manualReview: false,
+    evidence: [],
+    references,
+    lastUpdated: new Date().toISOString(),
+    version: 1,
+  };
+}
+
 const _MODULE_IMPLEMENTATIONS = {
   timelineIntelligence: _computeTimelineIntelligence,
+  vehicleIntelligence: _computeVehicleIntelligence,
 };
 
 // FUTURE — not built yet, documented so it can be lifted verbatim into
