@@ -9,6 +9,7 @@ Official documentation for both **KEY Investigations** and the **Bima Anveshak A
 - **Investigator or QC reviewer?** [User Manual](user-manual.md) — no technical background needed.
 - **Deploying or troubleshooting infrastructure?** [Deployment Guide](deployment-guide.md) → [Database Documentation](database-documentation.md).
 - **Calling the API directly, or integrating from Bima Anveshak?** [API Documentation](api-documentation.md).
+- **Picking up this project, or planning v1.1?** [v1.0 Release Handover](v1.0-RELEASE-HANDOVER.md) — the engineering handover: release summary, file tree, diagrams, tech debt, limitations, security/performance notes, v1.1 roadmap recommendation, risk assessment, backup recommendations, and the full production-readiness checklist.
 
 ## Documents
 
@@ -22,6 +23,7 @@ Official documentation for both **KEY Investigations** and the **Bima Anveshak A
 | [Deployment Guide](deployment-guide.md) | Engineers, ops | Hosting reality, deploy process, migrations, credentials, rollback |
 | [Testing Guide](testing-guide.md) | Engineers | Both test harnesses, required cases per module, gotchas |
 | [User Manual](user-manual.md) | Investigators, QC, admins | How to use the feature, what statuses mean, what's not built yet |
+| [v1.0 Release Handover](v1.0-RELEASE-HANDOVER.md) | Everyone, especially anyone planning v1.1 | Release summary, diagrams, tech debt, limitations, risk, readiness checklist |
 
 ## Integration specifications (external modules — not implemented in v1.0)
 
