@@ -426,41 +426,23 @@ async function _computeTimelineIntelligence({ docsText }, { onStatus } = {}) {
   };
 }
 
-function _buildVehicleIntelligencePrompt(docsText) {
-  return `You are cross-verifying vehicle-related facts for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not a legal authority and have no access to any external registry (VAHAN, RTO, etc.); you can only compare what the provided text itself states.
-
-From the case document text below — which may include RC, Permit, Fitness Certificate, Insurance Policy, MVI/Mechanical Inspection Report, TP Vehicle Details, Spot Panchnama, FIR, and Chargesheet — cross-check vehicle facts such as: registration number, owner name, permit type/validity, fitness certificate validity, insurance policy period/coverage, and vehicle description, wherever two or more documents mention the same vehicle.
-
-1. List each cross-check you can actually perform from the text given (e.g. "registration number as per FIR vs. RC").
-2. Flag any discrepancy the text actually supports (e.g. registration number differs between two documents, permit or fitness certificate expired before the accident date, policy period doesn't cover the accident date) — only flag what is explicitly stated, never infer or guess a value that isn't written.
-3. If a relevant document isn't present in the text, or a fact isn't stated, say so rather than assuming a value.
-4. Every check and every discrepancy must name which document(s) it came from.
-
-Respond with ONLY this JSON shape, no other text:
-{
-  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
-  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
-  "confidence": "high|medium|low"
-}
-
-CASE DOCUMENTS:
-${docsText}`;
-}
-
-async function _computeVehicleIntelligence({ docsText }, { onStatus } = {}) {
-  const prompt = _buildVehicleIntelligencePrompt(docsText);
+// Shared by every module that follows the "cross-check documents, flag discrepancies"
+// shape (Vehicle, Person, Medical, Digital Evidence — anything that isn't a timeline).
+// One parser/formatter, reused rather than duplicated per module.
+async function _computeChecksAndDiscrepancies(promptBuilder, docsText, { emptyMessage, tooLongMessage, onStatus } = {}) {
+  const prompt = promptBuilder(docsText);
   const response = await _runQueued(() => _request("/ki/completion", {
     prompt, max_tokens: 2000, model_tier: "fast",
   }, { onStatus }), onStatus);
-  const parsed = await _parseJsonContent(response, { maxTokensMessage: "Vehicle cross-check too long — try including fewer documents." });
-  if (!parsed || typeof parsed !== "object") throw new Error("Invalid vehicle intelligence response shape");
+  const parsed = await _parseJsonContent(response, { maxTokensMessage: tooLongMessage });
+  if (!parsed || typeof parsed !== "object") throw new Error("Invalid response shape");
 
   const checks = Array.isArray(parsed.checks) ? parsed.checks : [];
   const discrepancies = Array.isArray(parsed.discrepancies) ? parsed.discrepancies : [];
   const checkLines = checks.map((c) => `${c.item || "check"}: ${c.result || "(no result stated)"} (${c.source || "source not stated"})`).join("\n");
   const discrepancyLines = discrepancies.map((d) => `[${(d.severity || "").toUpperCase()}] ${d.description} (${d.source || "source not stated"})`).join("\n");
   const summary = (checks.length === 0 && discrepancies.length === 0)
-    ? "No vehicle-related documents found to cross-check."
+    ? emptyMessage
     : discrepancies.length
       ? `${checks.length} cross-check${checks.length === 1 ? "" : "s"} performed; ${discrepancies.length} discrepanc${discrepancies.length === 1 ? "y" : "ies"} flagged.`
       : `${checks.length} cross-check${checks.length === 1 ? "" : "s"} performed; no discrepancies flagged.`;
@@ -486,9 +468,127 @@ async function _computeVehicleIntelligence({ docsText }, { onStatus } = {}) {
   };
 }
 
+function _buildVehicleIntelligencePrompt(docsText) {
+  return `You are cross-verifying vehicle-related facts for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not a legal authority and have no access to any external registry (VAHAN, RTO, etc.); you can only compare what the provided text itself states.
+
+From the case document text below — which may include RC, Permit, Fitness Certificate, Insurance Policy, MVI/Mechanical Inspection Report, TP Vehicle Details, Spot Panchnama, FIR, and Chargesheet — cross-check vehicle facts such as: registration number, owner name, permit type/validity, fitness certificate validity, insurance policy period/coverage, and vehicle description, wherever two or more documents mention the same vehicle.
+
+1. List each cross-check you can actually perform from the text given (e.g. "registration number as per FIR vs. RC").
+2. Flag any discrepancy the text actually supports (e.g. registration number differs between two documents, permit or fitness certificate expired before the accident date, policy period doesn't cover the accident date) — only flag what is explicitly stated, never infer or guess a value that isn't written.
+3. If a relevant document isn't present in the text, or a fact isn't stated, say so rather than assuming a value.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeVehicleIntelligence({ docsText }, { onStatus } = {}) {
+  return _computeChecksAndDiscrepancies(_buildVehicleIntelligencePrompt, docsText, {
+    emptyMessage: "No vehicle-related documents found to cross-check.",
+    tooLongMessage: "Vehicle cross-check too long — try including fewer documents.",
+    onStatus,
+  });
+}
+
+function _buildPersonIntelligencePrompt(docsText) {
+  return `You are cross-verifying the identity and personal particulars of the parties (deceased/injured, claimant, dependents) for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not an identity verification authority and have no access to any external database (Aadhar/UIDAI, etc.); you can only compare what the provided text itself states.
+
+From the case document text below — which may include Particulars of Deceased/Injured, Age Proof Documents, Income Proof & Employment Details, Marriage/Dependency Proof, Insured Statement, Driver Statement, Claimant Statement(s), and 161 Eyewitness Statements — cross-check personal particulars (name, age/DOB, address, occupation, relationship to deceased/injured) wherever the same person is referenced in two or more documents.
+
+1. List each cross-check you can actually perform from the text given (e.g. "age of deceased as per Petition vs. Age Proof").
+2. Flag any discrepancy the text actually supports (e.g. name spelled differently, age/DOB differs, address inconsistent, a claimed dependent/relation not corroborated elsewhere) — only flag what is explicitly stated, never infer or guess a value that isn't written.
+3. If a relevant document isn't present in the text, or a fact isn't stated, say so rather than assuming a value.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computePersonIntelligence({ docsText }, { onStatus } = {}) {
+  return _computeChecksAndDiscrepancies(_buildPersonIntelligencePrompt, docsText, {
+    emptyMessage: "No party-identity documents found to cross-check.",
+    tooLongMessage: "Person cross-check too long — try including fewer documents.",
+    onStatus,
+  });
+}
+
+function _buildMedicalIntelligencePrompt(docsText) {
+  return `You are cross-checking medical DOCUMENTATION consistency for an Indian motor insurance (MACT) investigation, purely for internal cross-checking. You are not a doctor, cannot assess whether treatment was clinically appropriate, and must never offer a medical opinion — only check whether the documents agree with each other on stated facts (dates, diagnosis wording, amounts, percentages).
+
+From the case document text below — which may include MLC & Medical/Injury Details, Discharge Summary, Medical Bills & Expenses, Disability Certificate, and Postmortem Report — cross-check factual consistency such as: diagnosis/injury description across documents, admission/discharge dates matching the medical bills period, and disability percentage matching the certificate.
+
+1. List each cross-check you can actually perform from the text given.
+2. Flag any discrepancy the text actually supports (e.g. injury described differently across two documents, billed period doesn't match stated admission/discharge dates, disability percentage differs between documents) — only flag what is explicitly stated, never infer or guess, and never offer a medical opinion on treatment or diagnosis.
+3. If a relevant document isn't present in the text, or a fact isn't stated, say so rather than assuming a value.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeMedicalIntelligence({ docsText }, { onStatus } = {}) {
+  return _computeChecksAndDiscrepancies(_buildMedicalIntelligencePrompt, docsText, {
+    emptyMessage: "No medical documents found to cross-check.",
+    tooLongMessage: "Medical cross-check too long — try including fewer documents.",
+    onStatus,
+  });
+}
+
+function _buildDigitalEvidenceIntelligencePrompt(docsText) {
+  return `You are reviewing DESCRIBED visual/digital evidence for an Indian motor insurance (MACT) investigation, purely from the text descriptions provided — you have no access to the actual image, video, or file data itself, so you cannot assess authenticity, tampering, or metadata; you can only check whether the described evidence is consistent with, or contradicts, what other documents state.
+
+From the case document text below — which may include Photographs / Visual Evidence descriptions and any CCTV/dashcam mentions elsewhere — check:
+1. Completeness: which categories of visual evidence are described as present (scene photos, vehicle damage photos, injury photos, CCTV/dashcam) and which are explicitly stated as absent or simply not mentioned.
+2. Consistency: does the described evidence match facts stated elsewhere (e.g. photographed damage location matches the DAR's description of impact) — only flag a contradiction the text actually supports.
+3. If no visual evidence documentation is present in the text, say so rather than assuming any exists.
+4. Every check and every discrepancy must name which document(s) it came from.
+
+Respond with ONLY this JSON shape, no other text:
+{
+  "checks": [{"item": "what was cross-checked", "result": "what was found, stated plainly", "source": "which document(s)"}],
+  "discrepancies": [{"description": "plain-language explanation", "severity": "high|medium|low", "source": "which document(s)"}],
+  "confidence": "high|medium|low"
+}
+
+CASE DOCUMENTS:
+${docsText}`;
+}
+
+async function _computeDigitalEvidenceIntelligence({ docsText }, { onStatus } = {}) {
+  return _computeChecksAndDiscrepancies(_buildDigitalEvidenceIntelligencePrompt, docsText, {
+    emptyMessage: "No visual/digital evidence documentation found in the provided documents.",
+    tooLongMessage: "Digital evidence cross-check too long — try including fewer documents.",
+    onStatus,
+  });
+}
+
 const _MODULE_IMPLEMENTATIONS = {
   timelineIntelligence: _computeTimelineIntelligence,
   vehicleIntelligence: _computeVehicleIntelligence,
+  personIntelligence: _computePersonIntelligence,
+  medicalIntelligence: _computeMedicalIntelligence,
+  digitalEvidenceIntelligence: _computeDigitalEvidenceIntelligence,
 };
 
 // FUTURE — not built yet, documented so it can be lifted verbatim into
