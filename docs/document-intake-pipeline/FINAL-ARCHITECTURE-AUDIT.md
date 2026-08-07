@@ -133,3 +133,19 @@ Approval is **conditional on closing the 3 REQUIRED BEFORE IMPLEMENTATION items*
 - Database schema/migrations modified: **No** — `supabase/migrations/` contains the same 8 files as before this audit; none created, none altered.
 - Implementation started: **No** — `git log`/`git status` re-checked this pass; the last commit touching `report.html`, `js/ai-service.js`, or `supabase/migrations/` predates this entire Document Intake Pipeline proposal.
 - Final architecture verdict: **A — Approved for implementation, conditional on the 3 REQUIRED BEFORE IMPLEMENTATION items in §11.**
+
+---
+
+## Addendum — Closure of the 3 REQUIRED BEFORE IMPLEMENTATION Items
+
+*Appended, not edited into the findings above — the audit findings stand as the record of what was found on that pass; this addendum records what changed afterward.*
+
+All three closed, documentation-only, in a single follow-up round:
+
+1. **300-page ceiling** — architecture-assessment.md gained a new §1b restating the full requirement in explicit text (configurable ceiling, explicit rejection over it, never silent truncation, 20-page batch is internal-only and orthogonal to the ceiling, raising the ceiling later is a config change grounded in the fact that no pipeline stage hardcodes a page/batch count) — no longer only a cross-reference to a section number that had gone stale. §11's risk-table row was fixed to point at §1b instead of the stale `(v2 §5)` citation.
+2. **Health `eventType` — admission** — medical-intelligence-layer.md §2c gained `admission` as a 10th `eventType`; §2d gained `diagnosed_during` as the corresponding 9th relationship edge (a 10-node chain has 9 edges, not 8 — needed for §2d's own claim of naming every edge to still be true); §4c's traversal description now starts from admission explicitly.
+3. **Export design** — architecture-assessment.md gained a new §8d defining, generically for any adapter, how a dedicated timeline view appears in Word/PDF/Text exports (placement, appears-only-when-populated, per-row shape covering date, stage, description, source provenance, confidence, plus a discrepancy list) — design only, no export code written. Both adapter documents' §6 now point to it instead of leaving the question open.
+
+Verified before and after this closure round: `git diff --stat report.html js/ai-service.js supabase/` empty both times. `report.html`'s pre-existing `typeMap` gap (originally item 11 in §11's FUTURE ENHANCEMENT list) was deliberately left untouched, as instructed — it isn't required for any of the three items above.
+
+**Updated implementation-readiness status**: all 3 REQUIRED BEFORE IMPLEMENTATION items are closed. 0 BLOCKER, 0 REQUIRED remain open. The 7 IMPLEMENTATION DETAIL and 3 FUTURE ENHANCEMENT items from §11 are unchanged and, by their own classification, do not gate implementation. **Verdict: A — Approved for implementation**, no longer conditional.

@@ -1,10 +1,10 @@
 # Document Intake Pipeline — Architecture Assessment
 
-**Status: Proposal, revised three times. Not approved, not implemented, no code written.** Research and design only. Feeds into (does not replace) the frozen [Legal & Investigation Intelligence Engine](../legal-intelligence/README.md).
+**Status: Proposal, revised four times. Not approved, not implemented, no code written.** Research and design only. Feeds into (does not replace) the frozen [Legal & Investigation Intelligence Engine](../legal-intelligence/README.md).
 
 **This document covers the claim-agnostic common infrastructure**: page rendering, batching, classification, boundary reconciliation, storage, the server-side review/confirm state machine, and the Document Timeline. Everything claim-specific — Health, TP, OD, Theft, and future types — is a separate, linked adapter document built *on top of* this one. See §8 for the formal boundary and the current adapter registry.
 
-**Revision history**: v1 (initial) → v2 (full-bundle batching architecture, mandatory review, 300-page configurable ceiling) → v3 (server-side encrypted storage for page images, a richer multi-signal boundary classifier plus a new global consistency pass, and server-side/auditable review state replacing client-only state) → v4 (TTL default resolved with an explicit trade-off; Supabase Storage availability verified live against the actual project) → **v5, this version** (formalized the common-infrastructure/claim-specific-adapter boundary; fixed two places where Health-specific wording had leaked into what's supposed to be generic; relocated Document Timeline here from medical-intelligence-layer.md since it was already claim-agnostic; generalized the Medical Event persistence design into a shared, adapter-tagged `investigation_events`/`investigation_event_links` pair so TP doesn't need a duplicate schema).
+**Revision history**: v1 (initial) → v2 (full-bundle batching architecture, mandatory review, 300-page configurable ceiling) → v3 (server-side encrypted storage for page images, a richer multi-signal boundary classifier plus a new global consistency pass, and server-side/auditable review state replacing client-only state) → v4 (TTL default resolved with an explicit trade-off; Supabase Storage availability verified live against the actual project) → v5 (formalized the common-infrastructure/claim-specific-adapter boundary; fixed two places where Health-specific wording had leaked into what's supposed to be generic; relocated Document Timeline here from medical-intelligence-layer.md; generalized the Medical Event persistence design into a shared, adapter-tagged `investigation_events`/`investigation_event_links` pair) → **v6, this version** (closes the 3 REQUIRED BEFORE IMPLEMENTATION items from `FINAL-ARCHITECTURE-AUDIT.md`: restated the 300-page ceiling's explicit rejection behavior in full at §1b rather than a cross-reference that had gone stale; defined export design for adapter-specific timeline views at §8d).
 
 ## 1. Problem Statement (unchanged from v2)
 
@@ -17,6 +17,18 @@ Upload one combined PDF; the system identifies, groups, classifies, and extracts
 Concretely, the rule this revision enforces: **nothing in §2–§7 below may name a specific claim type, document type, or professional role as if it were universal.** Where earlier revisions of this document did that (§5a's seam signals, §3's diagram), it's fixed below and flagged as a fix, not silently corrected. The test for any future change to this document: would this line still make sense for a Theft claim bundle containing zero medical documents and zero hospitals? If not, it belongs in an adapter document, not here.
 
 This principle was checked against the real codebase, not just stated abstractly — see §2's new finding on `DOC_CATEGORIES`.
+
+### 1b. Page Ceiling Behavior (closes REQUIRED item 1, FINAL-ARCHITECTURE-AUDIT.md §1/§11)
+
+Restated explicitly here because the risk table (§11) previously cited a section number, `(v2 §5)`, that stopped holding this content once the document was renumbered in the layering-separation revision — the behavior itself was never wrong, only no longer stated in the visible text. It is restated in full below, not just cross-referenced, so it can't go stale the same way again:
+
+- **The configured ceiling is initially 300 pages.**
+- **The ceiling is configurable** — a setting, not a constant baked into the pipeline logic (same "configuration, not code" discipline already used for the TTL defaults in §4).
+- **A PDF exceeding the configured ceiling must be explicitly rejected at upload**, before any rendering or batching begins — a clear, user-facing error naming the actual page count and the configured limit, not a silent partial acceptance.
+- **The system must never silently truncate, ignore, or process only the first N pages of an oversized PDF.** There is no code path in this design that reads a subset of pages and proceeds — either the whole bundle is under the ceiling and enters the pipeline, or it's over the ceiling and is rejected outright.
+- **The 20-page processing batch (§3 node C) remains an internal processing constraint only**, unrelated to the ceiling — it governs how many pages go into one classification API call, not how many total pages a bundle may contain. A 300-page bundle at a 20-page batch size is 15 batches; a future 500-page ceiling at the same batch size would be 25 batches — the batch size doesn't change with the ceiling.
+- **Raising the configured ceiling later is a configuration change, not a pipeline redesign** — grounded, not asserted: nothing in Pass 1a (per-batch), Pass 1b (per-seam), Pass 1c (whole-stitched-result), or the `intake_review_sessions` schema (§6: `page_count int`, `document_groups jsonb`) hardcodes a page or batch count anywhere. Batch count and seam count scale linearly with total pages; raising the ceiling only means more batches get processed for a bundle that's actually that large, and proportionally higher per-upload AI-call cost (§10) — the mechanism itself is unchanged.
+- **The invariant that makes "no silent drop" checkable**: every page in a confirmed bundle must appear in exactly one `document_groups[].pageRange` or in `unrecognized_pages` (§6) — never in neither. This is what the review screen (§9) surfaces when it shows "handle unrecognized pages" as a required capability: unrecognized is a visible, actionable state, not pages disappearing.
 
 ## 2. Current System Touchpoints (unchanged from v2, extended this revision)
 
@@ -219,6 +231,32 @@ claim_intelligence_adapters
 
 `od` and `theft` map onto the platform's real `motor_od`/`motor_theft` claim types (§2) and are genuinely next in line if this proposal proceeds past Health/TP; `pa_gpa`/`wc` are named because the requirement named them, not because platform support exists yet — building their adapters is also blocked on those claim types existing at all.
 
+### 8d. Export Design for Adapter-Specific Views (new — closes REQUIRED item 3, FINAL-ARCHITECTURE-AUDIT.md §8/§11)
+
+**Architecture-level design only — no export code is written or changed by this section.** Applies generically to any adapter's dedicated timeline view (Health's Patient Treatment Timeline, TP's Investigation Timeline, and any future adapter's equivalent) — one export pattern, not one per adapter, same "define once, adapters populate it" discipline as the rest of §8.
+
+**Placement**: an additional subsection within the existing Legal & Investigation Intelligence export block — after the 13-module checklist, still before the disclaimer footer, the same anchor point established for that section originally. One appendix-style intelligence area in the exported document, not a scattered new section.
+
+**Appears only when populated** — same discipline as the 13-module checklist's own "Not Performed" rows: if no adapter has produced events for this draft (claim type has no adapter, or the adapter hasn't run yet), its timeline subsection is omitted entirely, not shown as an empty placeholder. A court-facing export should never show fabricated structure behind data that doesn't exist.
+
+**Row shape — one row per event, chronological**:
+
+| Column | Source | Notes |
+|---|---|---|
+| Date/time | `event_date`/`event_time` | preserved as written in source, never reformatted — same convention as every existing export |
+| Stage | `event_type`, rendered via the adapter's display label (e.g. "Admission," "Diagnosis," not the raw enum value) | |
+| Description | `description` | |
+| Source | `source_document_group_id` + `source_pages`, rendered as a group/page reference (e.g. "Discharge Summary, p.14") | shown **where appropriate** — omitted, never fabricated, for a row whose provenance genuinely wasn't captured |
+| Confidence | `confidence` | shown **where appropriate** — a uniformly `high`-confidence set of rows doesn't need every row visually flagged, but any `low`-confidence row should be visually distinguishable, mirroring how the existing Legal Intelligence renderer already color-codes status |
+
+**Relevant findings**: discrepancy/verification records (medical-intelligence-layer.md §5, tp-investigation-layer.md §5) render as a distinct list beneath the chronological table, each citing the `relatedEventIds` it concerns — the same "every observation names its source" discipline already used throughout every existing export in this app.
+
+**Format-specific rendering** (design intent, not implementation):
+- Word/PDF: a formatted table per adapter subsection, styled consistently with how `ModuleCard`s already render structured module data in `report.html`'s existing `LegalIntelligenceSection` — no new visual language invented.
+- Text export: a flat, indented list per event (`date — stage — description — source — confidence`), mirroring the plain-text export's existing, simpler treatment of the 13-module checklist.
+
+**What this does not do**: does not add new fields to the 13-module `ModuleRecord` contract; does not change `downloadAsWord`/`downloadAsPDF`/`downloadAsText`'s existing behavior for any of the 13 Legal Intelligence modules — this is a new, additional subsection those functions would need to gain, not a modification of what they already render. Building it is scoped to Phase 5 of the recommended implementation sequence (FINAL-ARCHITECTURE-AUDIT.md §12), not this documentation round.
+
 ## 9. Review Screen — Required Capabilities (unchanged from v2, backed by §6)
 
 Same 9 capabilities as v2 (review groups, page ranges, document type, confidence, inspect source pages, merge/split, retype, handle unrecognized, explicit confirm) — every read and write goes through the server-side session (§6).
@@ -231,7 +269,7 @@ Same 9 capabilities as v2 (review groups, page ranges, document type, confidence
 
 | Risk | Status |
 |---|---|
-| Silent page loss on large bundles | Resolved by design (v2 §5) |
+| Silent page loss on large bundles | Resolved by design — explicit rejection + page-accounting invariant (§1b; *this row previously cited a stale `v2 §5` reference that no longer held the content after renumbering — fixed by restating the behavior explicitly rather than cross-referencing it*) |
 | Misclassified document silently corrupts data | Resolved by design (mandatory review, §9, server-backed) |
 | Locally-plausible-but-globally-wrong stitching | Resolved by design — Pass 1c (§5b) |
 | Page image storage becoming de facto permanent | Resolved — tiered default TTL with explicit trade-off (§4) |

@@ -1,6 +1,8 @@
 # TP Investigation Layer — the Third Party / MACT Claim-Specific Adapter
 
-**Status: Proposal, v1. Not approved, not implemented, no code written.** Depends on [architecture-assessment.md](architecture-assessment.md) (the claim-agnostic common infrastructure) for confirmed documents, provenance, and the Document Timeline. This document covers what happens *after* confirmation, specifically for TP-liability and MACT investigation content.
+**Status: Proposal, revised once. Not approved, not implemented, no code written.** Depends on [architecture-assessment.md](architecture-assessment.md) (the claim-agnostic common infrastructure) for confirmed documents, provenance, and the Document Timeline. This document covers what happens *after* confirmation, specifically for TP-liability and MACT investigation content.
+
+**Revision history**: v1 (initial) → **v2, this version** (points §6 at the new export design in architecture-assessment.md §8d — closes part of REQUIRED item 3 from `FINAL-ARCHITECTURE-AUDIT.md`; no change to this adapter's own eventType/relationshipType vocabulary, which was unaffected by that audit's findings).
 
 **One of several claim-specific adapters, not a special case.** Registered in architecture-assessment.md §8c alongside [medical-intelligence-layer.md](medical-intelligence-layer.md) (Health) and named-but-undesigned adapters for OD/Theft/PA-GPA/WC. This document covers `tp` and `mact` — the platform's two real `claim_types` (`supabase/migrations/20260509000003_multitenant.sql:127-153`) that share the same investigation document universe (FIR, Panchnama, chargesheet, vehicle documents, court process) even though they proceed through different legal fora.
 
@@ -90,7 +92,7 @@ Same discipline as Health (medical-intelligence-layer.md §5): every one of thes
 
 ## 6. How This Surfaces
 
-**Identical resolution to Health's (medical-intelligence-layer.md §5's "Investigation Summary — RESOLVED"), not a new decision.** No second synthesis module. TP findings enrich the **existing, unmodified** `vehicleIntelligence`, `personIntelligence`, `timelineIntelligence`, and `crossVerificationSummary` modules' `docsText` input and populate their existing `evidence`/`references` fields — the Investigation Decision Engine (`js/ai-service.js:833-901`) picks this up automatically on its next run, same generic loop, zero code changes. The full Layer B graph remains separately queryable via `investigation_events`/`investigation_event_links` (`source_adapter = 'tp'`) for its own dedicated timeline view.
+**Identical resolution to Health's (medical-intelligence-layer.md §5's "Investigation Summary — RESOLVED"), not a new decision.** No second synthesis module. TP findings enrich the **existing, unmodified** `vehicleIntelligence`, `personIntelligence`, `timelineIntelligence`, and `crossVerificationSummary` modules' `docsText` input and populate their existing `evidence`/`references` fields — the Investigation Decision Engine (`js/ai-service.js:833-901`) picks this up automatically on its next run, same generic loop, zero code changes. The full Layer B graph remains separately queryable via `investigation_events`/`investigation_event_links` (`source_adapter = 'tp'`) for its own dedicated timeline view. **Export design** for that view (how it appears in Word/PDF/Text exports) is defined once, generically, at architecture-assessment.md §8d — identical pattern to Health's, not redefined here.
 
 ## 7. Status and Open Items
 
