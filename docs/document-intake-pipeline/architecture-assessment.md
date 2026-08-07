@@ -1,55 +1,66 @@
 # Document Intake Pipeline — Architecture Assessment
 
-**Status: Proposal, revised twice. Not approved, not implemented, no code written.** Research and design only. Feeds into (does not replace) the frozen [Legal & Investigation Intelligence Engine](../legal-intelligence/README.md).
+**Status: Proposal, revised three times. Not approved, not implemented, no code written.** Research and design only. Feeds into (does not replace) the frozen [Legal & Investigation Intelligence Engine](../legal-intelligence/README.md).
 
-**This document covers the claim-type-agnostic intake mechanics**: page rendering, batching, classification, boundary reconciliation, storage, and the server-side review/confirm state machine. The Health-Claim-specific medical intelligence modeling (document taxonomy, normalized medical events, the three-tier timeline, treatment/medicine/test/procedure/billing mapping) is now a separate, linked document: **[medical-intelligence-layer.md](medical-intelligence-layer.md)** — split out because it's a distinct concern that only activates for medical-document-heavy claims, while this document's mechanics apply to any bundle regardless of claim type.
+**This document covers the claim-agnostic common infrastructure**: page rendering, batching, classification, boundary reconciliation, storage, the server-side review/confirm state machine, and the Document Timeline. Everything claim-specific — Health, TP, OD, Theft, and future types — is a separate, linked adapter document built *on top of* this one. See §8 for the formal boundary and the current adapter registry.
 
-**Revision history**: v1 (initial) → v2 (full-bundle batching architecture, mandatory review, 300-page configurable ceiling) → v3 (server-side encrypted storage for page images, a richer multi-signal boundary classifier plus a new global consistency pass, and server-side/auditable review state replacing client-only state) → **v4, this version** (TTL default resolved with an explicit trade-off; Supabase Storage availability verified live against the actual project, not assumed).
+**Revision history**: v1 (initial) → v2 (full-bundle batching architecture, mandatory review, 300-page configurable ceiling) → v3 (server-side encrypted storage for page images, a richer multi-signal boundary classifier plus a new global consistency pass, and server-side/auditable review state replacing client-only state) → v4 (TTL default resolved with an explicit trade-off; Supabase Storage availability verified live against the actual project) → **v5, this version** (formalized the common-infrastructure/claim-specific-adapter boundary; fixed two places where Health-specific wording had leaked into what's supposed to be generic; relocated Document Timeline here from medical-intelligence-layer.md since it was already claim-agnostic; generalized the Medical Event persistence design into a shared, adapter-tagged `investigation_events`/`investigation_event_links` pair so TP doesn't need a duplicate schema).
 
 ## 1. Problem Statement (unchanged from v2)
 
-Upload one combined PDF; the system identifies, groups, classifies, and extracts every document inside it, then populates `docCategories` exactly as manual per-category entry does today. Everything downstream of confirmed documents is either the existing, frozen Legal Intelligence pipeline, or (for medical documents specifically) the new layer described in [medical-intelligence-layer.md](medical-intelligence-layer.md).
+Upload one combined PDF; the system identifies, groups, classifies, and extracts every document inside it, then populates `docCategories` exactly as manual per-category entry does today. Everything downstream of confirmed documents is either the existing, frozen Legal Intelligence pipeline, or a claim-specific adapter (§8) for claim types with richer structured content — currently Health and TP.
 
-## 2. Current System Touchpoints (unchanged from v2)
+### 1a. Layering Principle (new this revision — the architectural correction this revision exists to make)
+
+**The Combined PDF pipeline is common infrastructure, built once, used by every claim type.** Page identification, document grouping, cross-batch reconciliation, human review, confirmed documents, provenance, and the Document Timeline (§7) must never branch on claim type and must never assume a specific claim type's document vocabulary. A claim-specific *intelligence* layer — Health's Medical Events, TP's Investigation Events, and future OD/Theft/PA-GPA/WC layers — is built **on top of** confirmed documents, never inside the intake mechanics themselves.
+
+Concretely, the rule this revision enforces: **nothing in §2–§7 below may name a specific claim type, document type, or professional role as if it were universal.** Where earlier revisions of this document did that (§5a's seam signals, §3's diagram), it's fixed below and flagged as a fix, not silently corrected. The test for any future change to this document: would this line still make sense for a Theft claim bundle containing zero medical documents and zero hospitals? If not, it belongs in an adapter document, not here.
+
+This principle was checked against the real codebase, not just stated abstractly — see §2's new finding on `DOC_CATEGORIES`.
+
+## 2. Current System Touchpoints (unchanged from v2, extended this revision)
 
 `DOC_CATEGORIES` (36 categories, `report.html`), `_pdfFileToImages`/`_filesToPayload` (page rendering + the existing 20-image call constraint, `js/ai-service.js`), `AIService.autoFillDocument` (reused unchanged for final extraction). See v2 for full detail — not repeated here.
 
-**New touchpoint identified this revision**: this application has **no existing Supabase Storage usage anywhere** — confirmed by direct grep across `report.html`, `js/app.js`, `js/ai-service.js`. Today, files are read entirely client-side (`FileReader`/`pdfjs`) and their derived image data is sent directly in API request bodies; nothing is ever written to a durable bucket. **Server-side encrypted object storage for page images (§6) is therefore genuinely new infrastructure for this application, not a matter of extending something that already exists.**
+**New finding this revision — `DOC_CATEGORIES` is already largely a TP/MACT taxonomy, not a neutral one.** Direct inspection of all 36 category keys (`report.html:89-362`) shows this application was originally built for MACT/TP investigation, not retrofitted onto a generic document store: `fir`, `spotPanchnama`, `dar`, `siteMap`, `inquestPanchnama`, `pmReport`, `chargesheet`, `otherPolicePapers`, `vehicleRC`, `permit`, `fitness`, `policy`, `pucCert`, `tpVehicle`, `tpInsurance`, `tpRiderDL`, `mcr`, `rtoVerification` are all present today, pre-dating this proposal entirely. This matters for the TP adapter (new [tp-investigation-layer.md](tp-investigation-layer.md)): unlike Health, which needed an entirely new Layer-A taxonomy because nothing like it existed, TP's compatibility map is mostly a near-1:1 identity map onto categories that already exist — the genuinely new work for TP is Layer B (structured, dated investigation events), not Layer A.
 
-**Storage availability — verified live this revision, not just grepped**: `GET https://mqsohzqbsupsathxphgd.supabase.co/storage/v1/bucket`, called with this app's own public anon key (the same key already shipped in `js/app.js` to every browser — not a new credential exposure), returned `HTTP 200` with body `[]`. This confirms the Storage REST service is provisioned and reachable on the actual project (a disabled or unprovisioned Storage add-on would not answer its own API cleanly) and that zero buckets currently exist or are anon-visible — consistent with the grep above at the infrastructure level, not just the code level. **Not verified by this check** — and not verifiable from a static site holding only a public anon key: plan-tier storage quota, and bucket-creation permissions (creating a bucket needs dashboard access or a `service_role`-authenticated call; the anon key cannot and should not be able to create one). See §9 — this narrows the remaining risk to "create and configure one bucket," not "confirm the feature exists."
+**Platform `claim_types` grounding** (`supabase/migrations/20260509000003_multitenant.sql:127-153`) — the real, seeded claim types on this platform today are exactly: `motor_od`, `motor_theft`, `health`, `mact`, `tp`, `non_motor`. Two things worth stating plainly: (1) `report.html`'s own `claimType` dropdown (`["MACT Death Claim","MACT Injury Claim","TPPD Claim"]`) is a separate, hardcoded, narrower list — not sourced from this table — a pre-existing inconsistency this proposal doesn't introduce and isn't in scope to fix here. (2) **PA/GPA and WC, named in the current architecture requirement, do not exist as `claim_types` rows anywhere in this codebase today** — they're named honestly below as future adapters, not implied to already have platform support.
+
+**Storage availability — verified live, not assumed** (unchanged finding from v4): `GET https://mqsohzqbsupsathxphgd.supabase.co/storage/v1/bucket`, called with this app's own public anon key, returned `HTTP 200` with body `[]` — Storage is provisioned and reachable, zero buckets exist yet. Not verifiable from a static site with only an anon key: plan-tier quota, bucket-creation permissions (needs dashboard or `service_role` access). See §11.
 
 ## 3. Revised Pipeline
 
 ```mermaid
 flowchart TD
     A[Investigator uploads ONE combined PDF\nup to configured ceiling, default 300 pages] --> B[Render all pages to images]
-    B --> ST1[("Encrypted server-side storage\n(temporary, TTL-bound) — §6")]
+    B --> ST1[("Encrypted server-side storage\n(temporary, TTL-bound) — §4")]
     B --> C[Slice into batches of 20\ninternal API constraint only]
     C --> D["Pass 1a: per-batch classification (parallel)\ncategory + confidence + in-batch continuation"]
     D --> E["Pass 1b: seam reconciliation (parallel)\nrich multi-signal, per seam — §5"]
     E --> F["Pass 1c: global consistency pass\nchecks the FULL stitched result, not just pairwise seams — §5"]
     F --> G[Candidate document groups\nbatch-boundary-agnostic]
-    G --> RS[("Server-side review/intake session\n(auditable, reversible) — §7")]
+    G --> RS[("Server-side review/intake session\n(auditable, reversible) — §6")]
     RS --> H["Review screen — investigator confirms\n(reads/writes RS, not local-only state)"]
     H --> I[Pass 2: per-group extraction\nreuses autoFillDocument, unchanged]
     I --> J[docCategories populated]
-    J --> K[Existing pipeline, unchanged]
-    G -.medical documents.-> L["See medical-intelligence-layer.md\nDocument Taxonomy → Medical Events → Timeline"]
+    J --> DT[Document Timeline — §7\nSTILL common infrastructure, claim-agnostic]
+    DT --> K[Existing Legal Intelligence pipeline, unchanged]
+    DT -.claim-specific adapter, per claim type — §8.-> ADP{{"Health → medical-intelligence-layer.md\nTP → tp-investigation-layer.md\nOD / Theft / PA-GPA / WC → named, not yet designed"}}
 ```
 
-## 4. Storage Architecture for Rendered Page Images (new — resolves risk 15.2)
+**Fixed this revision**: earlier revisions drew only one dotted branch out of the pipeline, labeled "medical documents," as though Health were the sole specialization and everything else fell through to some implicit default. That was itself a Health-specific assumption leaking into a diagram that's supposed to represent common infrastructure. The corrected diagram shows one adapter fan-out point (§8) with every claim type as a peer.
+
+## 4. Storage Architecture for Rendered Page Images (resolves risk 15.2)
 
 - **Where**: Supabase Storage, a **new, dedicated, private bucket** (e.g. `intake-page-renders`) — no public URL access under any circumstance. Every read goes through an authenticated, signed-URL-or-equivalent path gated by the same Supabase JWT/role check already used everywhere else in this app.
-- **What's stored**: only the *rendered derivatives* (per-page JPEG images produced during Pass 1) — not the original uploaded PDF. The original file's handling is explicitly out of scope for this bucket and "remains subject to the application's normal document retention/security policy," per instruction — whatever that policy is today for any other uploaded case file, unchanged by this proposal.
-- **Encryption**: at-rest encryption on the bucket (Supabase Storage supports this at the project/infrastructure level) plus the existing in-transit TLS every other call in this app already uses — no new transport mechanism invented.
-- **TTL / cleanup — default resolved this revision, still configurable, not hardcoded**: a single flat number forces an artificial choice between "long enough to be useful" and "short enough to be safe," so the default is **tiered by `intake_review_sessions.status` (§6)** rather than one constant:
-  - `status IN ('processing', 'ready_for_review')`: **no TTL** — the session is actively using the images; cleanup is gated on reaching a terminal status, not elapsed time.
-  - `status = 'confirmed'`: **7 days**. Once confirmed, `autoFillDocument` has already run and `docCategories` is populated — the rendered images are no longer load-bearing for anything except a short grace window (e.g. a QC reviewer double-checking a boundary a few days later). Beyond that, the original PDF (kept under the app's normal, separate retention policy) remains the source of truth for anyone who needs to re-examine a page.
-  - `status = 'abandoned'` (or a session that never reaches `confirmed` within a stale-session window): **3 days**. An abandoned upload has no ongoing legitimate use, so its sensitive image copies should clear faster than a confirmed session's grace window.
-  - All three numbers are configuration, not constants baked into code — exposed as settings so they can be tuned without a deploy.
-
-  **Trade-off, stated explicitly**: these are rendered images of medical records — sensitive under any reasonable privacy standard, and an *extra* copy of that sensitivity beyond the original document, existing solely to serve a transient UI need (Pass 1 classification + the review screen's "inspect source pages" capability). Shorter TTLs shrink the exposure window if the bucket is ever compromised or misconfigured, at the cost of inconvenience if someone needs to re-open a session after images have already been purged (they fall back to the original PDF, which is slower but not blocked). Longer TTLs trade the reverse. The 7-day/3-day split above leans toward minimizing exposure, consistent with how this document already treats page images as sensitive-and-temporary (this section) rather than durable — but the exact numbers are a policy call for the user to confirm, not a decision to treat as final on the strength of this document alone.
-- **Access pattern**: the review screen (§7) fetches page images by reference (a storage path/key stored in the review session record, never the image itself embedded in that record) — keeps the review-session database rows small and keeps image access auditable/gateable independently of the review-session data.
+- **What's stored**: only the *rendered derivatives* (per-page JPEG images produced during Pass 1) — not the original uploaded PDF. The original file's handling is explicitly out of scope for this bucket and remains subject to the application's normal document retention/security policy, unchanged by this proposal.
+- **Encryption**: at-rest encryption on the bucket (Supabase Storage supports this at the project/infrastructure level) plus the existing in-transit TLS every other call in this app already uses.
+- **TTL / cleanup — tiered default, configurable, not hardcoded** (resolved in the prior revision): a single flat number forces an artificial choice between "long enough to be useful" and "short enough to be safe," so the default is tiered by `intake_review_sessions.status` (§6):
+  - `status IN ('processing', 'ready_for_review')`: **no TTL** — cleanup is gated on reaching a terminal status, not elapsed time.
+  - `status = 'confirmed'`: **7 days** — a short grace window after `docCategories`/adapter events are already populated; the original document remains the durable source of truth beyond that.
+  - `status = 'abandoned'`: **3 days** — no ongoing legitimate use, so exposure should clear faster.
+  - **Trade-off**: rendered page images are an *extra* copy of sensitive document content (medical or otherwise — a TP bundle's MLC/postmortem pages are just as sensitive as a Health bundle's) existing solely for a transient UI need. Shorter TTLs shrink exposure if the bucket is ever compromised or misconfigured, at the cost of needing to fall back to the original PDF if someone reopens a session after images expire. These numbers lean toward minimizing exposure but are a policy call for the user to confirm, not final on the strength of this document alone.
+- **Access pattern**: the review screen (§9) fetches page images by reference (a storage path/key stored in the review session record, never the image itself embedded in that record).
 
 ## 5. Boundary Reconciliation — Redesigned (resolves risk 15.3)
 
@@ -57,16 +68,16 @@ flowchart TD
 
 ### 5a. Pass 1b — richer per-seam classification
 
-For each batch-to-batch seam, the classifier now considers a **local context window** (a few pages on each side of the seam, not just the two immediately adjacent pages) and reasons over multiple signal types:
+For each batch-to-batch seam, the classifier considers a **local context window** (a few pages on each side of the seam, not just the two immediately adjacent pages) and reasons over multiple signal types:
 
 - Document headings / titles
 - OCR/text continuity (does sentence/paragraph structure carry across the seam)
-- Patient / hospital / doctor identity (same names appearing on both sides)
+- **Named-entity identity** (same person or organization named on both sides — e.g. claimant, patient, driver, doctor, hospital, police station, insurer; *fixed this revision — previously read "Patient / hospital / doctor identity," a Health-only example presented as if it were the general signal*)
 - Dates
 - Page numbering (e.g., "3 of 5" → "4 of 5" is strong continuation evidence; a reset to "1 of 1" is strong new-document evidence)
-- Repeated headers/footers (letterhead, hospital stamp, form ID)
+- Repeated headers/footers (letterhead, hospital stamp, police-station seal, form ID)
 - Document formatting (layout/template consistency)
-- Clinical/content continuity (does the narrative or clinical record logically continue)
+- **Narrative/content continuity** (does the record's subject-matter narrative logically continue — clinical, investigative, procedural, or otherwise; *fixed this revision — previously read "Clinical/content continuity," again a Health-only framing of a general signal*)
 - Handwriting/form continuity, where the source is handwritten or a fixed-layout form
 
 **Output**, per seam:
@@ -81,17 +92,13 @@ For each batch-to-batch seam, the classifier now considers a **local context win
   ]
 }
 ```
-`evidence` is what makes this auditable and reviewable, not a black-box verdict — matches the "every observation cites what it's based on" convention already established throughout the Legal Intelligence Engine.
+`evidence` is what makes this auditable and reviewable, not a black-box verdict.
 
-### 5b. Pass 1c — global consistency pass (new)
+### 5b. Pass 1c — global consistency pass
 
-After all local seam verdicts are in and pages are provisionally stitched into candidate groups, a **separate, lightweight pass examines each resulting candidate group as a whole** — not pairwise — checking for internal contradictions that no single local seam decision would catch on its own: page numbering that doesn't form a coherent sequence across the *whole* group, a document type that drifts (page 3 looks like a lab report, page 15 of the "same" group looks like a discharge summary, even though every seam in between looked locally fine), or an implausible span (a "single document" candidate group spanning 40 pages when nothing else about it suggests a document that large).
+After all local seam verdicts are in and pages are provisionally stitched into candidate groups, a **separate, lightweight pass examines each resulting candidate group as a whole** — not pairwise — checking for internal contradictions no single local seam decision would catch: page numbering that doesn't form a coherent sequence across the *whole* group, a document type that drifts partway through, or an implausible span. This pass doesn't re-derive anything from images; it operates on already-stitched candidate groups and their existing per-page data, flagging groups that fail an internal-coherence check for the review screen to surface (correction stays with the investigator, per §9).
 
-**Why this needs to be a separate pass, not folded into 5a**: local seam decisions are necessarily myopic (they only see a small window); a chain of individually-plausible local "continues" verdicts can still produce a globally implausible result — the classic failure mode of purely pairwise/greedy stitching. This pass doesn't re-derive anything from images; it operates on the *already-stitched* candidate groups and their existing per-page classification/confidence data, flagging groups that fail an internal-coherence check for the review screen to surface prominently (not auto-correcting them — correction stays with the investigator, per §7).
-
-## 6. Server-Side Review/Intake Session (new — resolves risk 15.4)
-
-Client-side-only state was rejected: not durable across a session interruption, not auditable, and the earlier "where do in-progress edits live" question (v2 risk 15.4) has no good client-only answer at 300-page scale. New design: a dedicated Supabase table.
+## 6. Server-Side Review/Intake Session (resolves risk 15.4)
 
 ```sql
 -- illustrative shape, not a migration to run yet
@@ -101,8 +108,10 @@ intake_review_sessions
   user_id           uuid references profiles(id)
   status            text    -- 'processing' | 'ready_for_review' | 'confirmed' | 'abandoned'
   page_count        int
-  document_groups   jsonb   -- current state: [{groupId, pageRange, documentTypeId,
+  document_groups   jsonb   -- [{groupId, pageRange, documentTypeId,
                              --   mappedDocCategory, confidence, sourceImageRefs, status}, ...]
+                             -- documentTypeId/mappedDocCategory are free-form strings — this table
+                             -- has never named a claim type or document taxonomy; no fix was needed here.
   unrecognized_pages jsonb
   edit_log          jsonb   -- append-only: [{timestamp, actor, action, before, after}, ...]
   created_at        timestamptz
@@ -110,36 +119,133 @@ intake_review_sessions
   confirmed_at      timestamptz
 ```
 
-- **`edit_log` is append-only** — every merge/split/retype/reassign action is recorded with a before/after snapshot of the affected group(s), which is what makes edits reversible (undo = apply the inverse of the last log entry) and auditable (a full history survives, not just the final state) — matches the explicit requirement, and mirrors the "never silently overwrite" discipline already used throughout this project (e.g., how document field values are merged, not replaced, during repeat auto-fill).
-- **`document_groups`** references page images by storage key (§4), never embeds image data.
-- **Nothing writes to `report_drafts.doc_categories` until `status` transitions to `confirmed`** — the same "AI proposes, human confirms" boundary already established for `legal_intelligence`, applied one layer earlier in the pipeline.
-- **This is a new table, additive only** — no change to `report_drafts`' existing schema, matching the same non-destructive extension pattern the Legal Intelligence Engine's own registry table established.
+- **`edit_log` is append-only** — every merge/split/retype/reassign action is recorded with a before/after snapshot, making edits reversible and auditable — matches the "never silently overwrite" discipline already used throughout this project.
+- **Nothing writes to `report_drafts.doc_categories` until `status` transitions to `confirmed`** — the same "AI proposes, human confirms" boundary already established for `legal_intelligence`.
+- **Additive only** — no change to `report_drafts`' existing schema.
 
-## 7. Review Screen — Required Capabilities (unchanged from v2, now backed by §6 instead of client state)
+## 7. Document Timeline (relocated here this revision — common infrastructure, not a Health specialization)
 
-Same 9 capabilities as v2 (review groups, page ranges, document type, confidence, inspect source pages, merge/split, retype, handle unrecognized, explicit confirm) — every read and write now goes through the server-side session (§6) instead of local component state, which is what makes the session resumable and auditable.
+**This section previously lived in `medical-intelligence-layer.md` as its §4a.** On inspection it was already fully claim-agnostic — nothing about "confirmed documents ordered by their own date" is medical — so keeping it filed under a Health-specific document was the same category of error as §5a's leaked signal names, just structural instead of textual. It's common infrastructure and now lives here.
 
-## 8. Cost and Performance (updated for Pass 1c)
+**Definition**: confirmed document *groups* (from §6, once `status = 'confirmed'`), ordered by each document's own date (e.g. an FIR dated 12/03, a chargesheet dated 30/04, a discharge summary dated 22/03 — mixed claim content, one timeline). Coarse — one point per document, not per extracted fact. This is the last common-infrastructure artifact before a claim-specific adapter takes over: every adapter (§8) receives the Document Timeline as one of its inputs and builds a finer-grained, claim-specific timeline on top of it (Health's Medical Event Timeline / Patient Treatment Timeline; TP's Investigation Event Timeline) — the common layer never builds that finer timeline itself, since doing so would require knowing what "finer" means for a given claim type.
 
-Unchanged from v2 for Pass 1a/1b scale (15 classification + 14 reconciliation calls at the 300-page ceiling) — Pass 1b's calls are individually somewhat more expensive now (richer context window, structured evidence output) but still `"fast"`-tier and still parallel. **Pass 1c is new but cheap**: it operates on already-extracted classification data, not images — no new vision calls, likely a single reasoning pass (or none at all if implemented as deterministic rule-checks — e.g., page-numbering-sequence validation doesn't need an AI call at all, only genuinely ambiguous coherence questions might).
+## 8. Claim-Specific Adapter Contract & Registry (new this revision)
 
-## 9. Risks Carried Forward and Newly Introduced
+### 8a. The Contract
+
+What crosses from common infrastructure into a claim-specific adapter, and nothing more:
+- Confirmed document groups (§6, post-`confirmed`): `{groupId, pageRange, documentTypeId, mappedDocCategory, sourceImageRefs}`.
+- Provenance for every group: which pages, at what confidence, from which seam/consistency decisions.
+- The Document Timeline (§7).
+
+What an adapter must never assume about the common layer, and what the common layer must never assume about an adapter — this is the enforcement mechanism for §1a's layering principle, not just a statement of intent:
+- The common layer (§2–§7) never imports, names, or special-cases an adapter's document taxonomy or event vocabulary.
+- An adapter never modifies §2–§7's behavior, schema, or classification logic — it only *reads* confirmed output and *writes* its own structured events (below).
+- A bundle with zero documents relevant to any adapter (e.g. a claim type with no adapter built yet) still passes through §2–§7 unchanged and lands in the existing, frozen Legal Intelligence pipeline exactly as it does today.
+
+### 8b. Shared Persistence — `investigation_events` / `investigation_event_links`
+
+**Generalized this revision from the prior round's Health-only `medical_events`/`medical_event_links`.** Building a second adapter (TP) with its own duplicate pair of tables would be exactly the duplication this revision's instruction rules out — the event/relationship shape isn't Health-specific, only the *vocabulary* populating it is. One shared schema, tagged by which adapter produced each row:
+
+```sql
+-- illustrative shape, not a migration to run yet
+
+investigation_events
+  id                     uuid primary key
+  draft_id               uuid references report_drafts(id)
+  review_session_id      uuid references intake_review_sessions(id)   -- nullable
+  source_adapter         text     -- 'health' | 'tp' | 'od' | 'theft' | ... — the ONE claim-aware
+                                   -- column in this table; see §8c for the adapter registry
+  event_type             text     -- adapter-defined vocabulary; a shared base set (e.g. billingItem)
+                                   -- plus adapter-specific extensions — see each adapter document
+  description            text
+  event_date              text    -- preserved as written in source, never reformatted
+  event_time               text   -- nullable
+  actor                     text  -- generalized from a prior Health-only 'doctor' field — a doctor
+                                   -- for Health, an investigating officer/witness/party for TP
+  location                  text  -- generalized from a prior Health-only 'facility' field — a
+                                   -- hospital for Health, a police station/court/site for TP
+  status_note                text -- nullable free-text status/progress at time of event (renamed
+                                   -- from a prior Health-only 'clinicalStatus' — e.g. "stable" for
+                                   -- Health, "chargesheet filed" for TP)
+  amount                      numeric  -- nullable
+  source_document_group_id     text    -- references document_groups[].groupId (§6) — a value
+                                        -- reference, not a DB-level FK (that data lives in jsonb)
+  source_pages                  int[]  -- plural — one fact can span/repeat across multiple pages
+  confidence                     text  -- 'high' | 'medium' | 'low'
+  extraction_status                text -- 'extracted' | 'investigator_confirmed'
+                                         -- | 'investigator_edited' | 'investigator_rejected'
+  superseded_by                     uuid references investigation_events(id)  -- nullable;
+                                         -- corrections create a new row rather than mutating in place
+  created_at, updated_at               timestamptz
+  created_by                            uuid references profiles(id)
+
+investigation_event_links
+  id                 uuid primary key
+  draft_id           uuid references report_drafts(id)   -- denormalized for RLS simplicity
+  from_event_id      uuid references investigation_events(id)
+  to_event_id        uuid references investigation_events(id)
+  relationship_type  text  -- adapter-defined vocabulary — see each adapter document
+  confidence         text  -- independent of either endpoint event's own confidence
+  evidence           text  -- nullable; why this link was drawn
+  created_at         timestamptz
+```
+
+- **Auditability**: `extraction_status` + `superseded_by` gives a checkable history without a separate log table — an event's current state is always one row, its history is the chain of `superseded_by` pointers.
+- **RLS**: same `SECURITY DEFINER` helper pattern already used for every table in this project, scoped by `draft_id → report_drafts.user_id`.
+- **Additive only**: two new tables; zero changes to `report_drafts`, `intake_review_sessions`, or any existing table.
+
+### 8c. Adapter Registry (new — mirrors the `legal_intelligence_modules` registry pattern already proven in this project)
+
+A lightweight registry table, `claim_intelligence_adapters`, the same pattern already trusted for the 13-module Legal Intelligence registry — a list of adapters with status, not a hardcoded if/else on claim type anywhere in code:
+
+```sql
+-- illustrative shape, not a migration to run yet
+claim_intelligence_adapters
+  id            text primary key   -- 'health' | 'tp' | 'od' | 'theft' | 'pa_gpa' | 'wc'
+  label         text
+  status        text   -- 'designed' | 'named' | 'future'
+  spec_doc      text   -- path to the adapter document, if one exists
+```
+
+| `id` | Label | Status | Document |
+|---|---|---|---|
+| `health` | Health Claim Medical Intelligence | Designed | [medical-intelligence-layer.md](medical-intelligence-layer.md) |
+| `tp` | TP Investigation Intelligence | Designed (this revision) | [tp-investigation-layer.md](tp-investigation-layer.md) — also covers `mact` claims, which share the same FIR/Panchnama/MLC/chargesheet document universe as `tp` |
+| `od` | OD Damage/Repair/Assessment/Billing Intelligence | Named, not yet designed | — |
+| `theft` | Theft Timeline + Vehicle Recovery/Police/Documentary Verification | Named, not yet designed | — |
+| `pa_gpa` | PA/GPA Intelligence | Future — **not a `claim_types` row on this platform today** (§2) | — |
+| `wc` | Workmen's Compensation Intelligence | Future — **not a `claim_types` row on this platform today** (§2) | — |
+
+`od` and `theft` map onto the platform's real `motor_od`/`motor_theft` claim types (§2) and are genuinely next in line if this proposal proceeds past Health/TP; `pa_gpa`/`wc` are named because the requirement named them, not because platform support exists yet — building their adapters is also blocked on those claim types existing at all.
+
+## 9. Review Screen — Required Capabilities (unchanged from v2, backed by §6)
+
+Same 9 capabilities as v2 (review groups, page ranges, document type, confidence, inspect source pages, merge/split, retype, handle unrecognized, explicit confirm) — every read and write goes through the server-side session (§6).
+
+## 10. Cost and Performance (unchanged from v3)
+
+15 classification + 14 reconciliation calls at the 300-page ceiling, all `"fast"`-tier and parallel. Pass 1c operates on already-extracted classification data, not images — no new vision calls, likely a single reasoning pass or none at all for deterministic checks (e.g. page-numbering-sequence validation).
+
+## 11. Risks Carried Forward and Newly Introduced
 
 | Risk | Status |
 |---|---|
 | Silent page loss on large bundles | Resolved by design (v2 §5) |
-| Misclassified document silently corrupts data | Resolved by design (mandatory review, §7, now server-backed) |
-| Locally-plausible-but-globally-wrong stitching | **New, addressed this revision** — Pass 1c (§5b) |
-| Page image storage becoming de facto permanent | **Resolved this revision** — tiered default TTL chosen with explicit trade-off (§4: no TTL while active, 7 days confirmed, 3 days abandoned), still configurable |
-| New infrastructure dependency (Storage bucket) not yet confirmed available/configured on this Supabase project's plan | **Narrowed this revision** — Storage service confirmed live and reachable via a direct API check against the actual project (§2), zero buckets currently exist. Remaining prerequisite is narrower: creating and configuring the one new bucket (dashboard or `service_role`-authenticated step) and confirming plan-tier quota, neither of which is checkable from a public anon key |
-| Investigators bypass review by habit | Unchanged from v2 — UX design concern |
+| Misclassified document silently corrupts data | Resolved by design (mandatory review, §9, server-backed) |
+| Locally-plausible-but-globally-wrong stitching | Resolved by design — Pass 1c (§5b) |
+| Page image storage becoming de facto permanent | Resolved — tiered default TTL with explicit trade-off (§4) |
+| Storage bucket availability | Narrowed — service confirmed live via direct API check (§2); remaining prerequisite is creating and configuring the one bucket |
+| **Common infrastructure silently absorbing claim-specific assumptions** | **New this revision, and now the reason this revision exists** — found and fixed twice already (§3, §5a); the test in §1a is the ongoing mitigation, not a one-time fix |
+| **A future adapter needing schema changes to §6/§8b that the other adapters don't need** | **New** — not yet tested against a third adapter (only Health and TP exist in any detail so far); OD/Theft will be the real test of whether `investigation_events`' generalized shape actually holds, or needs revisiting |
+| Investigators bypass review by habit | Unchanged — UX design concern |
 
-## 10. What This Does Not Change
+## 12. What This Does Not Change
 
-Unchanged from v2: the Legal Intelligence Engine (registry, contract, all 13 modules, renderer, exports), `AIService`'s existing public methods, `report_drafts`' existing columns. New this revision: also unchanged — the general document retention/security policy for original uploaded files (§4 explicitly scopes storage to *rendered derivatives* only).
+The Legal Intelligence Engine (registry, contract, all 13 modules, renderer, exports), `AIService`'s existing public methods, `report_drafts`' existing columns, the general document retention/security policy for original uploaded files.
 
 ---
 
-See [medical-intelligence-layer.md](medical-intelligence-layer.md) for how confirmed documents become normalized medical events, the three-tier timeline model, and the Treatment/Medicine/Test/Procedure/Billing cross-verification layer — including how that layer relates to (and does not replace) the existing Medical Intelligence and Timeline Intelligence modules.
+Claim-specific adapters: [medical-intelligence-layer.md](medical-intelligence-layer.md) (Health) and [tp-investigation-layer.md](tp-investigation-layer.md) (TP) — both build on §7's Document Timeline and write into §8b's shared `investigation_events`/`investigation_event_links`, tagged by `source_adapter`. Neither modifies this document's common-infrastructure sections.
 
-**No code will be written until both documents' open items are addressed or explicitly deferred.**
+**No code will be written until this document's and both adapter documents' open items are addressed or explicitly deferred.**

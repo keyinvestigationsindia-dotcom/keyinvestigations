@@ -1,8 +1,10 @@
-# Medical Intelligence Layer — Health-Claim Document Taxonomy, Normalized Events, and Treatment Timeline
+# Medical Intelligence Layer — the Health Claim-Specific Adapter
 
-**Status: Proposal, revised once. Not approved, not implemented, no code written.** Depends on [architecture-assessment.md](architecture-assessment.md) (the claim-type-agnostic intake mechanics) for confirmed documents as input. This document covers what happens *after* confirmation, specifically for medical-document-heavy claims.
+**Status: Proposal, revised twice. Not approved, not implemented, no code written.** Depends on [architecture-assessment.md](architecture-assessment.md) (the claim-agnostic common infrastructure — combined-PDF intake, batching, reconciliation, review, confirmed documents, provenance, Document Timeline) for confirmed documents as input. This document covers what happens *after* confirmation, specifically for medical-document-heavy claims.
 
-**Revision history**: v1 (initial two-layer model) → **v2, this version** (all four §7 open questions resolved against the actual current codebase — compatibility map, Investigation Summary reuse, claim-type deferral, persistence design — plus a new relationship-graph model for the Medical Event layer, added per an explicit architecture check). Every resolution below was checked against the real current code (`report.html`, `js/ai-service.js`) and a live probe of the real Supabase project, not assumed — see inline citations.
+**This is one of several claim-specific adapters, not a special case.** Architecture-assessment.md §8c registers it alongside [tp-investigation-layer.md](tp-investigation-layer.md) (TP) and named-but-undesigned adapters for OD/Theft/PA-GPA/WC. Everything in this document is specific to Health; nothing in it belongs in, or should be assumed by, the common intake layer — see architecture-assessment.md §1a for the layering rule this document is required to respect.
+
+**Revision history**: v1 (initial two-layer model) → v2 (all four §7 open questions resolved against the actual current codebase — compatibility map, Investigation Summary reuse, claim-type deferral, persistence design — plus a relationship-graph model for the Medical Event layer) → **v3, this version** (relocated Document Timeline out of this document to architecture-assessment.md §7, since it was already claim-agnostic and its presence here was itself a layering violation; migrated the persistence design from Health-only tables to the newly-generalized, shared `investigation_events`/`investigation_event_links` — architecture-assessment.md §8b — tagged `source_adapter = 'health'`, so TP didn't need a duplicate schema). Every resolution below was checked against the real current code (`report.html`, `js/ai-service.js`) and a live probe of the real Supabase project, not assumed — see inline citations.
 
 ## 1. Why This Is a Separate Document From the Intake Pipeline
 
@@ -95,9 +97,11 @@ Looking at the actual field shapes resolves the original either/or ambiguity: **
 
 `AIService.autoFillDocument` continues to run exactly as it does today, per confirmed group, writing into these existing category buckets — Medical Intelligence and every other existing module continue reading `docCategories`/`docsText` exactly as they always have, unaware that a richer taxonomy or a second extraction pass exists.
 
-### 2c. Layer B — Normalized Medical Event Model (persistence design resolved — see §8)
+### 2c. Layer B — Normalized Medical Event Model (persisted in the shared `investigation_events` table — architecture-assessment.md §8b)
 
 A **new, dedicated extraction pass, run after document confirmation, separate from and in addition to** the existing `autoFillDocument` call (per the explicit instruction: *"The Medical Timeline must NOT simply be an incidental side effect of autoFillDocument"*).
+
+Every Health-adapter event is one row in architecture-assessment.md §8b's shared `investigation_events` table, with `source_adapter = 'health'`. Shown here as the JSON shape an extraction call would produce before being written as a row — field names match that shared table exactly, including the two that were generalized this revision (`actor`, `location` — see note below):
 
 ```json
 {
@@ -106,9 +110,9 @@ A **new, dedicated extraction pass, run after document confirmation, separate fr
   "description": "Tab. Augmentin 625mg, twice daily",
   "date": "17/03/2026",
   "time": "09:00",
-  "doctor": "Dr. R. Sharma",
-  "facility": "City Hospital, Ahmedabad",
-  "clinicalStatus": "stable",
+  "actor": "Dr. R. Sharma",
+  "location": "City Hospital, Ahmedabad",
+  "statusNote": "stable",
   "amount": null,
   "sourceDocumentGroupId": "grp_0007",
   "sourcePages": [14],
@@ -117,22 +121,19 @@ A **new, dedicated extraction pass, run after document confirmation, separate fr
 }
 ```
 
-Two changes from v1, both required by this round's resolutions:
-- **`eventType` extended** from the original 6 values to the full 9-node chain named in the relationship-graph requirement (§2d) — `diagnosis`, `investigation`, `treatment`, `medicine`, `procedure`, `clinicalProgress`, `billingItem`, `dischargeEvent`, `followUp` — so every node in Diagnosis → Investigation/Test → Treatment → Medicine → Procedure → Clinical Progress → Billing → Discharge → Follow-up has a matching event type, not just the 6 the original draft happened to name.
-- **`sourcePage` → `sourcePages` (array)**, per the explicit "source page(s)" plural requirement — a single clinical fact (e.g. one bill line item, or a lab panel reported across a spread) can legitimately span or repeat across more than one page. Singular was an unstated assumption; plural is what the source material actually needs.
-- **`extractionStatus` added**: `"extracted" | "investigator_confirmed" | "investigator_edited" | "investigator_rejected"` — makes this event's place in the "AI proposes, human confirms" boundary explicit and checkable, matching the same boundary already enforced for `legal_intelligence` (a module never marks itself `"Completed"`) and for `intake_review_sessions` (nothing writes to `doc_categories` until `status = 'confirmed'`).
+Changes from v1/v2, all required by resolutions to date:
+- **`eventType`** covers the full 9-node chain named in the relationship-graph requirement (§2d) — `diagnosis`, `investigation`, `treatment`, `medicine`, `procedure`, `clinicalProgress`, `billingItem`, `dischargeEvent`, `followUp` — one event type per node in Diagnosis → Investigation/Test → Treatment → Medicine → Procedure → Clinical Progress → Billing → Discharge → Follow-up. This is the Health adapter's own vocabulary for the shared table's generic `event_type` column (architecture-assessment.md §8b) — `billingItem` is deliberately shared wording, since other adapters (e.g. a future OD adapter) will have billing events too and a cross-adapter "all billing events on this draft" query should work without caring which adapter wrote them.
+- **`sourcePages` (array, not singular)** — a single clinical fact (e.g. one bill line item, or a lab panel reported across a spread) can legitimately span or repeat across more than one page.
+- **`extractionStatus`**: `"extracted" | "investigator_confirmed" | "investigator_edited" | "investigator_rejected"` — makes this event's place in the "AI proposes, human confirms" boundary explicit, matching the same boundary already enforced for `legal_intelligence` and `intake_review_sessions`.
+- **`actor`/`location`/`statusNote`** (renamed this revision from `doctor`/`facility`/`clinicalStatus`): the underlying shared table (architecture-assessment.md §8b) uses adapter-neutral column names, since a TP event's equivalent fields hold an investigating officer/witness and a police station/court, not a doctor and a hospital. For Health-adapter rows specifically, `actor` always means the treating/examining doctor and `location` always means the facility — nothing about the Health adapter's own behavior changes, only the shared column's name.
 
-Unchanged from v1:
-- `date`/`time` preserved as written in source (same convention as every existing module's prompt — never reformatted at extraction time).
-- `sourceDocumentGroupId` + `sourcePages` are the provenance requirement — *"each timeline event must retain source-document and page-level provenance so every finding can be traced back to evidence."* Every event traces to an exact confirmed group and the exact page(s) within it.
-- `amount` populated only for `billingItem` events; null otherwise — no field is force-filled.
-- This is genuinely new structured data, stored separately from `docCategories` (§8 — persistence design, resolved this revision).
+Unchanged: `date`/`time` preserved as written in source, never reformatted at extraction time; `sourceDocumentGroupId`+`sourcePages` give source-document and page-level provenance for every event; `amount` populated only for `billingItem` events.
 
 ### 2d. Layer B — Relationship Graph (new this revision — resolves the additional architecture check)
 
 **The Patient Treatment Timeline must be an evidence-linked clinical journey, not merely a sorted list of dates** — a flat, date-ordered list of Medical Events cannot express that a specific billing line item relates to a specific procedure, or that a specific medicine was given *for* a specific diagnosis. That requires edges between events, not just timestamps on them.
 
-Relationships are modeled as a **separate structure from the events themselves** — not a single `parentEventId` column on each event — because the required chain is a graph, not a tree: one diagnosis commonly leads to multiple tests; one billing item can relate to both a procedure and a medicine; a discharge can follow multiple parallel treatment threads (e.g. an orthopedic issue and an unrelated infection treated in the same admission). A single parent pointer can only express one tree; real bundles routinely need more than one.
+Relationships are modeled as a **separate structure from the events themselves** — not a single `parentEventId` column on each event — because the required chain is a graph, not a tree: one diagnosis commonly leads to multiple tests; one billing item can relate to both a procedure and a medicine; a discharge can follow multiple parallel treatment threads (e.g. an orthopedic issue and an unrelated infection treated in the same admission). A single parent pointer can only express one tree; real bundles routinely need more than one. This is a row in the shared `investigation_event_links` table (architecture-assessment.md §8b) — the Health adapter contributes the `relationshipType` vocabulary below; the table itself is common infrastructure, shared with every other adapter.
 
 ```json
 {
@@ -154,26 +155,28 @@ Relationships are modeled as a **separate structure from the events themselves**
 
 ```mermaid
 flowchart TD
-    A[Confirmed Documents\nfrom architecture-assessment.md §6-7] --> B[Medical Information Extraction\nNEW, dedicated pass — not autoFillDocument]
-    B --> C[Normalized Medical Events\nLayer B, §2c]
-    C --> D[Document Timeline\ndocuments ordered by their own date]
+    A[Confirmed Documents\narchitecture-assessment.md §6] --> DT[("Document Timeline\narchitecture-assessment.md §7\ncommon infrastructure — NOT produced here")]
+    A --> B[Medical Information Extraction\nNEW, dedicated pass — not autoFillDocument]
+    B --> C[Normalized Medical Events + Links\nLayer B, §2c/§2d]
     C --> E[Medical Event Timeline\nindividual events ordered chronologically]
-    D --> F[Patient Treatment Timeline\nsynthesized narrative reconstruction — §4c]
+    DT --> F[Patient Treatment Timeline\ngraph traversal over DT + events — §4c]
     E --> F
     C --> G["Treatment/Medicine/Test/Procedure/Billing Mapping\nevents grouped BY TYPE — §5"]
     G --> H[Cross-Document Verification\nevent-level — §5]
     H --> I[Discrepancies / Red Flags]
-    I --> J[Investigation Summary]
-    F -.enriches docsText.-> K[("Existing Timeline Intelligence,\nMedical Intelligence modules\n— unchanged code, richer input")]
-    J -.optional enrichment.-> L[("Existing Investigation Decision Engine\n— unchanged code")]
+    I --> J[Health findings]
+    F -.enriches docsText + evidence/references.-> K[("Existing Timeline Intelligence,\nMedical Intelligence modules\n— unchanged code, richer input")]
+    J -.enriches evidence/references, same path.-> K
+    K -.consumed automatically, next run.-> L[("Existing Investigation Decision Engine\n— unchanged code — §5")]
 ```
+**Fixed this revision**: the diagram previously showed Document Timeline as something *derived from* Medical Events (`C --> D`), which had the dependency backwards — Document Timeline is a common-infrastructure input this adapter *receives*, not something it produces. It's now shown coming from Confirmed Documents directly, matching architecture-assessment.md §7.
 
 ## 4. Three-Tier Timeline Model
 
 The explicit distinction required: **Document Timeline → Medical Event Timeline → Patient Treatment Timeline** are three different things, not three names for the same list.
 
-### 4a. Document Timeline
-Confirmed document *groups* (from the intake pipeline), ordered by each document's own date (e.g., admission record dated 15/03, discharge summary dated 22/03). Coarse — one point per document, not per clinical fact.
+### 4a. Document Timeline — relocated to architecture-assessment.md §7
+**Moved out of this document this revision.** Confirmed document groups ordered by their own date turned out to have nothing medical about it — it's exactly as applicable to a TP bundle's FIR/chargesheet/court-document sequence as to a Health bundle's admission/discharge sequence. Keeping it here, in a Health-specific document, was itself an instance of the layering leak this revision's architecture check exists to catch (see architecture-assessment.md §1a). It's now common infrastructure, produced once, and every adapter — this one included — builds its own finer-grained timeline (4b/4c below) on top of it.
 
 ### 4b. Medical Event Timeline
 Every individual Medical Event (§2c), ordered chronologically. One document (a medicine chart) can contribute many points to this timeline (one per administration), which is exactly the granularity the Document Timeline can't provide.
@@ -201,7 +204,7 @@ The synthesized, report-facing reconstruction — the Medical Event Timeline org
 | Missing supporting evidence | An event with zero edges where the chain would normally expect one (e.g. a `procedure` with no `procedure_for` link) |
 | Treatment-sequence inconsistencies | Walk `progress_of`/chain edges in date order; flag a sequence that violates expected ordering (e.g. a `dischargeEvent` dated before a `treatment` event it links to) |
 
-This is materially more precise than the *existing* Medical Intelligence module (which checks whether documents broadly agree — diagnosis wording, overall dates, disability percentage — not line-item medicine-by-medicine reconciliation). **It is a new capability, not a replacement of Medical Intelligence.** This table describes what the persistence design (§8) makes *possible to compute*; the compute logic itself is a future module, not built in this round.
+This is materially more precise than the *existing* Medical Intelligence module (which checks whether documents broadly agree — diagnosis wording, overall dates, disability percentage — not line-item medicine-by-medicine reconciliation). **It is a new capability, not a replacement of Medical Intelligence.** This table describes what the shared persistence design (architecture-assessment.md §8b) makes *possible to compute*; the compute logic itself is a future module, not built in this round.
 
 **Discrepancy shape** (modeled on, but distinct from, the existing checks/discrepancies pattern — evidence-based, cites its sources, same discipline, different granularity):
 ```json
@@ -213,17 +216,17 @@ This is materially more precise than the *existing* Medical Intelligence module 
   "relatedEventIds": ["evt_0140", "evt_0141"]
 }
 ```
-No field here or anywhere in §2c/§2d/§8 represents a fraud determination — `severity` is descriptive metadata on an observation ("high/medium/low"), not a verdict. This mirrors every existing module's discrepancy shape (e.g. Medical Intelligence's own `discrepancies[]`) exactly on purpose — evidence-based observations for the insurer/investigator to weigh, never automatic declarations.
+No field here or anywhere in §2c/§2d/architecture-assessment.md §8b represents a fraud determination — `severity` is descriptive metadata on an observation ("high/medium/low"), not a verdict. This mirrors every existing module's discrepancy shape (e.g. Medical Intelligence's own `discrepancies[]`) exactly on purpose — evidence-based observations for the insurer/investigator to weigh, never automatic declarations.
 
 **Investigation Summary — RESOLVED (was open question §7.2)**: does **not** reuse the pattern by becoming a second synthesis module. Reread against the actual `_computeInvestigationDecisionEngine` code (`js/ai-service.js:793–901`): it already loops `modules` generically — `_formatModulesForSynthesis` names zero specific `module_id`s, by design (its own comment: *"so a future 11th document-based module is included automatically"*) — so registering a second, separate synthesis module (e.g. `medicalInvestigationSummary`) would produce a **second, competing top-level conclusion** sitting next to the Decision Engine's own output. That is the "completely separate summary architecture" the instruction explicitly rejected, just wearing the same code shape.
 
-The integration point is one layer earlier instead: Layer B's discrepancies and treatment-timeline findings become richer `docsText` input to the **existing, unmodified** `medicalIntelligence` and `timelineIntelligence` modules (already recommended in §6, item 2 below), and separately, their distilled findings populate those two modules' own `evidence`/`references` fields — fields that already exist, unmodified, in the frozen 12-field contract, e.g. `{label: "Injection X billed 18/03 — no matching medicine-chart entry", fileRef: "grp_0007 p.14"}`. Because the Decision Engine already reads every module's `summary`/`details`/`references` generically, richer Medical/Timeline Intelligence output flows into its synthesis automatically, on its very next run — **zero changes to `_computeInvestigationDecisionEngine`, `_formatModulesForSynthesis`, `_buildInvestigationDecisionEnginePrompt`, `_SYNTHESIS_MODULE_IMPLEMENTATIONS`, or `getLegalIntelligence`'s dispatch loop.** Medical-specific findings and full provenance are not lost in this compression — the complete Layer B graph with full `sourcePages`/`eventId`/edge detail still persists separately (§8) and drives its own dedicated "Patient Treatment Timeline" report view (§6), so the enrichment path feeds the existing synthesis a cited, distilled version while the full structured version remains independently queryable.
+The integration point is one layer earlier instead: Layer B's discrepancies and treatment-timeline findings become richer `docsText` input to the **existing, unmodified** `medicalIntelligence` and `timelineIntelligence` modules (already recommended in §6, item 2 below), and separately, their distilled findings populate those two modules' own `evidence`/`references` fields — fields that already exist, unmodified, in the frozen 12-field contract, e.g. `{label: "Injection X billed 18/03 — no matching medicine-chart entry", fileRef: "grp_0007 p.14"}`. Because the Decision Engine already reads every module's `summary`/`details`/`references` generically, richer Medical/Timeline Intelligence output flows into its synthesis automatically, on its very next run — **zero changes to `_computeInvestigationDecisionEngine`, `_formatModulesForSynthesis`, `_buildInvestigationDecisionEnginePrompt`, `_SYNTHESIS_MODULE_IMPLEMENTATIONS`, or `getLegalIntelligence`'s dispatch loop.** Medical-specific findings and full provenance are not lost in this compression — the complete Layer B graph with full `sourcePages`/`eventId`/edge detail still persists separately (architecture-assessment.md §8b) and drives its own dedicated "Patient Treatment Timeline" report view (§6), so the enrichment path feeds the existing synthesis a cited, distilled version while the full structured version remains independently queryable. This same reasoning is reused verbatim, adapter-for-adapter, in [tp-investigation-layer.md](tp-investigation-layer.md) §5 for TP — not a coincidence, since nothing about this argument is Health-specific either, only its inputs are.
 
 ## 6. How This Surfaces — Recommended Design
 
 Two things happen with this layer's output, not one, satisfying both "build the dedicated new capability" and "don't replace the existing modules":
 
-1. **New, dedicated data**: Medical Events, the three-tier timeline, and event-level verification findings are stored as their own structured data — resolved this revision as the `medical_events` / `medical_event_links` tables, §8 below, additive only, same non-destructive pattern as every other extension in this project — and available to a **new, dedicated report view** ("Patient Treatment Timeline") — a genuinely new capability, not hidden inside existing modules.
+1. **New, dedicated data**: Medical Events, the three-tier timeline, and event-level verification findings are stored as their own structured data — as rows in the shared `investigation_events` / `investigation_event_links` tables (architecture-assessment.md §8b, `source_adapter = 'health'`), additive only, same non-destructive pattern as every other extension in this project — and available to a **new, dedicated report view** ("Patient Treatment Timeline") — a genuinely new capability, not hidden inside existing modules.
 2. **Enrichment of existing modules, unchanged code**: the Patient Treatment Timeline and verification findings are *also* serialized into the `docsText` a health-claim draft sends to the existing `getLegalIntelligence()` call. Timeline Intelligence's existing prompt already asks for "every explicitly dated event" — richer, structured, provenance-tagged input makes its *existing, unmodified* logic produce a materially better result. Same for Medical Intelligence. **Zero code changes to either module** — this is enrichment of their input, not a rewrite of their behavior, which is exactly the "don't replace existing modules" instruction applied as literally as possible.
 
 This mirrors the registry-based extensibility already proven for the 13-module Legal Intelligence Engine: a new capability plugs in by producing better input, not by modifying what already works.
@@ -239,56 +242,13 @@ Neither literally, nor a new synthesis step. Enrichment of Medical/Timeline Inte
 ### 7.3 `report.html` has no "Health Claim" claim type today — DEFERRED (explicit decision, not an open question)
 Confirmed by direct code read: the claim-type dropdown currently offers only `["MACT Death Claim", "MACT Injury Claim", "TPPD Claim"]` — no "Health Claim" option exists, even though the broader KEY Investigations platform's `claim_types` table already includes `health` as a type. **Explicit decision**: this layer stays claim-type-agnostic — it applies to any claim with medical documents (a MACT injury claim included), not gated behind a "Health Claim" type. Whether "Health Claim" becomes its own first-class investigation type with a dedicated report structure is a separate, larger product decision, out of scope here. `report.html`'s claim-type dropdown and behavior are not touched by this proposal.
 
-### 7.4 Storage location for Medical Events (§2c) — RESOLVED, §8
-`medical_events` / `medical_event_links`, two new additive tables. See §8 for the full schema.
+### 7.4 Storage location for Medical Events (§2c) — RESOLVED, architecture-assessment.md §8b
+Originally resolved (prior revision) as two Health-only tables, `medical_events`/`medical_event_links`. **Superseded this revision**: building TP's adapter (§8 below, and [tp-investigation-layer.md](tp-investigation-layer.md)) with its own duplicate pair of tables would have been exactly the "don't duplicate the pipeline per claim type" problem, one layer below where it was originally flagged. Generalized into shared `investigation_events`/`investigation_event_links` tables, tagged `source_adapter = 'health'` for this adapter's rows — full schema now lives in architecture-assessment.md §8b, since it's common infrastructure, not a Health-specific design. §2c/§2d above document the Health adapter's own `eventType`/`relationshipType` vocabulary for those shared columns.
 
-## 8. Medical Event Persistence Design (resolved this revision)
+## 8. Persistence — Where This Document's Design Now Lives
 
-**Requirement**: Medical Events must be persistable structured investigation data, not merely transient processing output — with event provenance, source document group, source page(s), confidence, extraction status, and auditability.
-
-**Design choice — two relational tables, not a jsonb blob**: `intake_review_sessions` (architecture-assessment.md §6) is one evolving document edited as a whole, so a jsonb blob per session fits. Medical Events are architecturally different — a *collection* of discrete, individually-queryable facts (an investigator needs "all billing events over ₹X," "every event linked to diagnosis Y") — so one row per event is the right shape, same reasoning that already governs every other relational table in this schema (`claims`, `qc_reviews`, etc.). Relationships (§2d) need their own table rather than a `parentEventId` column, because the required chain is a graph, not a tree (see §2d for why).
-
-```sql
--- illustrative shape, not a migration to run yet
-
-medical_events
-  id                     uuid primary key
-  draft_id               uuid references report_drafts(id)              -- which investigation this belongs to (report_drafts.id confirmed to exist — report.html:386)
-  review_session_id      uuid references intake_review_sessions(id)      -- nullable; which intake run produced it — nullable because a correction can in principle be added later outside a session
-  event_type             text     -- 'diagnosis' | 'investigation' | 'treatment' | 'medicine' | 'procedure'
-                                   -- | 'clinicalProgress' | 'billingItem' | 'dischargeEvent' | 'followUp'  (§2c)
-  description            text
-  event_date             text     -- preserved as written in source, never reformatted at extraction time (same convention as every existing prompt)
-  event_time             text     -- nullable
-  doctor                 text     -- nullable
-  facility               text     -- nullable
-  clinical_status        text     -- nullable
-  amount                 numeric  -- nullable; populated only for billingItem events
-  source_document_group_id text   -- references document_groups[].groupId inside intake_review_sessions.document_groups (a value reference, not a DB-level FK — that data lives in a jsonb column, not its own table)
-  source_pages            int[]   -- plural — one fact can span/repeat across multiple pages
-  confidence               text   -- 'high' | 'medium' | 'low'
-  extraction_status        text   -- 'extracted' | 'investigator_confirmed' | 'investigator_edited' | 'investigator_rejected'
-  superseded_by             uuid references medical_events(id)  -- nullable; corrections create a new row and point the old one here rather than mutating it in place — same "never silently overwrite" discipline already used for document field auto-fill merging and intake_review_sessions.edit_log
-  created_at                timestamptz
-  updated_at                timestamptz
-  created_by                uuid references profiles(id)
-
-medical_event_links
-  id                 uuid primary key
-  draft_id           uuid references report_drafts(id)   -- denormalized for RLS simplicity — scoped the same way every other table in this app is (SECURITY DEFINER helpers keyed off draft/user, not a join through events)
-  from_event_id      uuid references medical_events(id)
-  to_event_id        uuid references medical_events(id)
-  relationship_type  text  -- 'diagnosed_via' | 'treated_with' | 'medicated_with' | 'procedure_for'
-                            -- | 'progress_of' | 'billed_as' | 'discharged_after' | 'followed_up_by'  (§2d)
-  confidence         text  -- independent of either endpoint event's own confidence
-  evidence           text  -- nullable; why this link was drawn
-  created_at         timestamptz
-```
-
-- **Auditability**: `extraction_status` + `superseded_by` gives a checkable history without a separate append-only log table — an event's current state is always one row, its history is the chain of `superseded_by` pointers, and nothing is ever destructively updated once `extraction_status` moves past `'extracted'`.
-- **RLS**: same `SECURITY DEFINER` helper pattern already used for every table per this project's conventions (CLAUDE.md: *"All tables have RLS with SECURITY DEFINER helpers to avoid recursion"*) — scoped by `draft_id → report_drafts.user_id`, the same authorization boundary as everything else. Not a new pattern.
-- **Additive only**: two new tables; zero changes to `report_drafts`, `intake_review_sessions`, or any existing table's columns.
+**Relocated this revision.** What used to be a full standalone schema here (`medical_events`/`medical_event_links`) is now the Health adapter's contribution to a shared design: see architecture-assessment.md §8b for the table definitions (`investigation_events`, `investigation_event_links`, RLS, auditability via `extraction_status`+`superseded_by`) and §8c for the adapter registry this document is one row of. §2c and §2d above are what this document still owns: the Health-specific `eventType` vocabulary (9 values, one per node in the required clinical chain) and `relationshipType` vocabulary (8 edge types) that populate those shared tables' `event_type`/`relationship_type` columns when `source_adapter = 'health'`.
 
 ---
 
-**No code will be written until this document's and [architecture-assessment.md](architecture-assessment.md)'s open items are addressed or explicitly deferred — status as of this revision: all six items from the latest resolution round are addressed above; remaining prerequisites are listed in the chat response that accompanies this revision, not repeated here.**
+**No code will be written until this document's, [tp-investigation-layer.md](tp-investigation-layer.md)'s, and [architecture-assessment.md](architecture-assessment.md)'s open items are addressed or explicitly deferred.**
