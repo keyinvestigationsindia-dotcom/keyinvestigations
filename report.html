@@ -933,7 +933,15 @@ function InvestigationReportTool() {
 
     const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"long",year:"numeric"});
     const container = document.createElement("div");
-    container.style.cssText = "position:fixed;left:-9999px;top:0;width:210mm;background:#fff;padding:0";
+    // Rendered at normal, valid viewport coordinates (never a large negative
+    // offset like the old left:-9999px) and hidden purely via stacking order
+    // (very negative z-index), not via offset, opacity, or visibility — all
+    // three of the latter make html2canvas capture a genuinely blank/
+    // transparent element, which is exactly what was happening before: the
+    // captured PDF had a real image XObject but almost no data in it (~3KB
+    // total for a full text page), consistent with a blank/near-blank
+    // captured canvas rather than a crash (no console error either).
+    container.style.cssText = "position:fixed;left:0;top:0;width:210mm;background:#fff;padding:0;z-index:-1000;pointer-events:none";
     container.innerHTML = `<div style="padding:18mm 16mm 20mm;font-family:Calibri,Arial,sans-serif;color:#1a1a1a;font-size:10.5pt;line-height:1.5">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
         <img src="images/logo.jpg" style="height:52px;border-radius:6px" crossorigin="anonymous" />
