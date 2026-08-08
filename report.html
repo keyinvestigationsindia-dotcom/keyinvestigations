@@ -368,6 +368,26 @@ const DOC_CATEGORIES = [
   ], analysisHint:"Previous claims or accidents involving the same vehicle or claimant are a key fraud indicator. Note any findings clearly." },
 ];
 
+// Display-only filter for "Health Claim" — most of DOC_CATEGORIES (FIR,
+// Panchnama, chargesheet, vehicle RC/permit/fitness etc.) is MACT/TP
+// investigation content, irrelevant to a health-insurance treatment claim.
+// This narrows what's SHOWN for Health Claim to what's already genuinely
+// relevant; it does not touch docCategories state, buildDocsText, or any
+// export — those still key off each category's own `include` flag, so no
+// data already entered is ever hidden or lost, only the upload list itself.
+// A real Health-specific taxonomy (Admission Record, Prescription,
+// Medicine Chart, Lab Report, etc. as their own categories, plus a
+// Medical Event/Patient Treatment Timeline) is separate, larger,
+// deliberately-deferred work — see docs/document-intake-pipeline/
+// medical-intelligence-layer.md — not this filter.
+const HEALTH_CLAIM_VISIBLE_CATEGORIES = new Set([
+  "mlcMedical", "dischargeSummary", "medicalBills", "disabilityCert",
+  "policy", "photographs", "prevClaimHistory", "insuredStatement",
+]);
+const visibleDocCategories = (claimType) => claimType === "Health Claim"
+  ? DOC_CATEGORIES.filter((cat) => HEALTH_CLAIM_VISIBLE_CATEGORIES.has(cat.key))
+  : DOC_CATEGORIES;
+
 const initialDocCategories = () => {
   const obj = {};
   DOC_CATEGORIES.forEach((cat) => { obj[cat.key] = { include: false, values: {} }; });
@@ -1169,6 +1189,11 @@ function InvestigationReportTool() {
               <div style={{fontSize:11.5,color:"#857F6E",marginBottom:10,lineHeight:1.5}}>
                 Tick a document and either fill manually or use "Upload to auto-fill" with JPG/PNG/PDF/Word files — up to 20 pages per upload. Supports Hindi, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Bengali, Punjabi, Odia, Assamese, Urdu and English.
               </div>
+              {caseData.claimType === "Health Claim" && (
+                <div style={{fontSize:11,color:"#B8762E",marginBottom:10,lineHeight:1.5,fontStyle:"italic"}}>
+                  Showing only documents relevant to a Health Claim. FIR/Panchnama/vehicle documents etc. are hidden for this claim type — switch Claim type above if you need them.
+                </div>
+              )}
               <CombinedPdfUpload
                 processing={intakeProcessing} error={intakeError} progress={intakeProgress}
                 onUpload={handleCombinedPdfUpload} onDismissError={()=>setIntakeError(null)}
@@ -1190,7 +1215,7 @@ function InvestigationReportTool() {
                   <button className="ir-btn-ghost" style={{marginTop:8}} onClick={dismissIntakeSession}>Dismiss</button>
                 </div>
               )}
-              {DOC_CATEGORIES.map((cat) => {
+              {visibleDocCategories(caseData.claimType).map((cat) => {
                 const state = docCategories[cat.key];
                 const isOpen = !!expandedDocs[cat.key];
                 return (
