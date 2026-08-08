@@ -24,6 +24,7 @@ html{font-family:'Inter',system-ui,sans-serif}
 <script src="js/supabase.js"></script>
 <script src="js/app.js"></script>
 <script src="js/ai-service.js"></script>
+<script src="js/intake-service.js"></script>
 <script>
 // Auth guard — allow key_admin, key_qc, key_agent
 let currentProfile = null;
@@ -73,6 +74,11 @@ const Icon = {
   Search: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   X: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   Settings: ({size=16,color,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+  // Added for Combined PDF Intake review screen (Phase 1) — same outline
+  // style and prop signature as every icon above, nothing existing changed.
+  Eye: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  RefreshCw: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>,
+  Check: ({size=16,color,style,...p}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style} {...p}><polyline points="20 6 9 17 4 12"/></svg>,
 };
 
 const initialCase = {
@@ -508,6 +514,84 @@ function InvestigationReportTool() {
   const [draftsLoading, setDraftsLoading] = useState(false);
   const draftSaveRef = useRef(null);
   const draftLoadedRef = useRef(false);
+
+  // ── Combined PDF Intake (Phase 1 — common, claim-agnostic foundation
+  // only; see docs/document-intake-pipeline/phase-1-implementation-plan.md).
+  // Additional entry point alongside per-category upload, not a
+  // replacement — handleAutoFill above is untouched. ──
+  const [intakeSession, setIntakeSession] = useState(null);
+  const [intakeProcessing, setIntakeProcessing] = useState(false);
+  const [intakeError, setIntakeError] = useState(null);
+  const [intakeProgress, setIntakeProgress] = useState(null);
+  const [intakeConfirming, setIntakeConfirming] = useState(false);
+  const [intakeConfirmResults, setIntakeConfirmResults] = useState(null);
+
+  const handleCombinedPdfUpload = async (file) => {
+    if (!file) return;
+    setIntakeError(null); setIntakeProgress(null); setIntakeProcessing(true);
+    try {
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error("Session expired — please log in again.");
+      const docCategoriesVocab = DOC_CATEGORIES.map((c) => ({ key: c.key, title: c.title }));
+      const session = await IntakeService.processIntake(file, {
+        draftId: currentDraftId, userId, docCategoriesVocab,
+        onProgress: setIntakeProgress, onStatus: setQueueStatus,
+      });
+      setIntakeSession(session);
+      if (session.status === "error") setIntakeError(session.error_message || "Intake could not reach a trustworthy grouping result.");
+    } catch (e) {
+      if (e.code === "PAGE_CEILING_EXCEEDED") {
+        setIntakeError(e.message); // explicit rejection — no session was created, nothing to show beyond this message
+      } else {
+        setIntakeError(e.message || "Could not process this PDF.");
+      }
+    } finally {
+      setIntakeProcessing(false);
+    }
+  };
+
+  const refreshIntakeSession = async () => {
+    if (!intakeSession) return;
+    const updated = await IntakeService.getIntakeSession(intakeSession.id);
+    setIntakeSession(updated);
+  };
+
+  // Confirm: the ONLY place intake output reaches docCategories, reusing
+  // AIService.autoFillDocument and mergeFieldValues completely unchanged —
+  // the exact same functions and merge behavior manual per-category upload
+  // already uses (report.html:657-668).
+  const handleConfirmIntake = async () => {
+    if (!intakeSession) return;
+    setIntakeConfirming(true); setIntakeConfirmResults(null);
+    try {
+      const confirmed = await IntakeService.confirmIntakeSession(intakeSession);
+      setIntakeSession(confirmed);
+      const results = [];
+      for (const group of confirmed.document_groups) {
+        if (!group.mappedDocCategory) { results.push({ groupId: group.groupId, status: "skipped", reason: "No matching document category — resolve in review before it can be extracted." }); continue; }
+        const catObj = DOC_CATEGORIES.find((c) => c.key === group.mappedDocCategory);
+        if (!catObj) { results.push({ groupId: group.groupId, status: "skipped", reason: "Unknown document category." }); continue; }
+        try {
+          const files = await IntakeService.getGroupFiles(group);
+          const parsed = await AIService.autoFillDocument({ category: catObj, files }, { onStatus: setQueueStatus });
+          setDocCategories((d) => ({ ...d, [catObj.key]: { include: true, values: mergeFieldValues(d[catObj.key].values, parsed) } }));
+          setExpandedDocs((e) => ({ ...e, [catObj.key]: true }));
+          results.push({ groupId: group.groupId, status: "extracted", category: catObj.title });
+        } catch (e) {
+          // Per-group failure isolation — one group's extraction failure
+          // never blocks or loses the others' already-applied results.
+          results.push({ groupId: group.groupId, status: "failed", category: catObj.title, error: e.message });
+        }
+      }
+      setIntakeConfirmResults(results);
+    } catch (e) {
+      setIntakeError(e.message || "Could not confirm this intake session.");
+    } finally {
+      setIntakeConfirming(false);
+    }
+  };
+
+  const dismissIntakeSession = () => { setIntakeSession(null); setIntakeError(null); setIntakeProgress(null); setIntakeConfirmResults(null); };
 
   useEffect(() => {
     if (draftLoadedRef.current) return;
@@ -1085,6 +1169,27 @@ function InvestigationReportTool() {
               <div style={{fontSize:11.5,color:"#857F6E",marginBottom:10,lineHeight:1.5}}>
                 Tick a document and either fill manually or use "Upload to auto-fill" with JPG/PNG/PDF/Word files — up to 20 pages per upload. Supports Hindi, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Bengali, Punjabi, Odia, Assamese, Urdu and English.
               </div>
+              <CombinedPdfUpload
+                processing={intakeProcessing} error={intakeError} progress={intakeProgress}
+                onUpload={handleCombinedPdfUpload} onDismissError={()=>setIntakeError(null)}
+              />
+              {intakeSession && intakeSession.status === "ready_for_review" && (
+                <IntakeReviewScreen
+                  session={intakeSession} docCategories={DOC_CATEGORIES}
+                  onSessionChange={setIntakeSession} onRefresh={refreshIntakeSession}
+                  onConfirm={handleConfirmIntake} confirming={intakeConfirming}
+                  confirmResults={intakeConfirmResults} onDismiss={dismissIntakeSession}
+                />
+              )}
+              {intakeSession && intakeSession.status === "confirmed" && intakeConfirmResults && (
+                <div style={{background:"#F0F4EC",border:"1px solid #C7D9BC",borderRadius:6,padding:"12px 14px",marginBottom:12,fontSize:12,fontFamily:"Inter"}}>
+                  <div style={{fontWeight:700,color:"#3F6B3F",marginBottom:6}}>Combined PDF intake confirmed — {intakeConfirmResults.filter(r=>r.status==="extracted").length} of {intakeConfirmResults.length} groups extracted into the categories below.</div>
+                  {intakeConfirmResults.filter(r=>r.status!=="extracted").map((r) => (
+                    <div key={r.groupId} style={{color:"#A8362B",marginTop:2}}>{r.category||r.groupId}: {r.reason||r.error} — retype and confirm again, or fill this category manually.</div>
+                  ))}
+                  <button className="ir-btn-ghost" style={{marginTop:8}} onClick={dismissIntakeSession}>Dismiss</button>
+                </div>
+              )}
               {DOC_CATEGORIES.map((cat) => {
                 const state = docCategories[cat.key];
                 const isOpen = !!expandedDocs[cat.key];
@@ -1371,6 +1476,206 @@ function LegalIntelligenceSection({ data, loading, error, onRefresh }) {
       ) : (
         <div style={{fontSize:12.5,fontFamily:"Inter",color:"#A6A595",fontStyle:"italic"}}>Not yet generated for this draft — click Refresh.</div>
       )}
+    </div>
+  );
+}
+
+// ── Combined PDF Intake — Phase 1 review UI ──
+// Common, claim-agnostic intake foundation only (see
+// docs/document-intake-pipeline/phase-1-implementation-plan.md §6). These
+// components never reference Health/TP-specific vocabulary — they render
+// whatever IntakeService/intake_review_sessions produce generically.
+
+function CombinedPdfUpload({ processing, error, progress, onUpload, onDismissError }) {
+  const progressLabel = !progress ? null
+    : progress.stage === "rendering" ? `Rendering page ${progress.rendered} of ${progress.total}…`
+    : progress.stage === "uploading" ? `Storing page ${progress.uploaded} of ${progress.total}…`
+    : null;
+  return (
+    <div style={{background:"#F8F6F0",border:"1px dashed #C9A84C",borderRadius:6,padding:"12px 14px",marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontFamily:"Inter",fontWeight:600,fontSize:12.5,color:"#1B2A4A"}}>Upload Combined PDF</div>
+          <div style={{fontSize:11,color:"#857F6E",marginTop:2,lineHeight:1.5}}>
+            One PDF containing multiple documents — up to the configured page ceiling ({IntakeService.getConfig().pageCeiling} pages). Every page is classified, grouped, and held for your review before anything is added below.
+          </div>
+        </div>
+        <label className="ir-btn-ghost" style={{cursor:processing?"default":"pointer",fontSize:11,padding:"6px 10px",flexShrink:0}}>
+          {processing ? <Icon.Loader2 size={12} /> : <Icon.Upload size={12} />}
+          {processing ? "Processing…" : "Upload combined PDF"}
+          <input type="file" accept="application/pdf,.pdf" style={{display:"none"}} disabled={processing}
+            onChange={(e)=>{ const f=e.target.files && e.target.files[0]; e.target.value=""; if (f) onUpload(f); }} />
+        </label>
+      </div>
+      {progressLabel && <div style={{marginTop:8,fontSize:11,fontFamily:"Inter",color:"#B8762E"}}>{progressLabel}</div>}
+      {error && (
+        <div style={{marginTop:8,padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B",lineHeight:1.5,display:"flex",justifyContent:"space-between",gap:10}}>
+          <span>{error}</span>
+          <span style={{cursor:"pointer",flexShrink:0}} onClick={onDismissError}><Icon.X size={12} /></span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageInspector({ paths, onClose }) {
+  const [urls, setUrls] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resolved = await Promise.all(paths.map((p) => IntakeService.getSignedPageUrl(p)));
+        if (!cancelled) setUrls(resolved);
+      } catch (e) { if (!cancelled) setLoadError(e.message || "Could not load this page image."); }
+    })();
+    return () => { cancelled = true; };
+  }, [paths]);
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(27,42,74,0.72)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:24}} onClick={onClose}>
+      <div style={{background:"#fff",borderRadius:8,padding:16,maxWidth:"90vw",maxHeight:"90vh",overflow:"auto"}} onClick={(e)=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontFamily:"Inter",fontWeight:600,fontSize:12.5,color:"#1B2A4A"}}>Source page{paths.length>1?"s":""}</span>
+          <span style={{cursor:"pointer"}} onClick={onClose}><Icon.X size={16} color="#857F6E" /></span>
+        </div>
+        {loadError && <div style={{color:"#A8362B",fontSize:12}}>{loadError}</div>}
+        {!urls && !loadError && <div style={{fontSize:12,color:"#A6A595"}}><Icon.Loader2 size={14} /> Loading…</div>}
+        {urls && urls.map((u, i) => <img key={i} src={u} style={{maxWidth:"80vw",maxHeight:"75vh",display:"block",marginBottom:8,border:"1px solid #E3DDD0"}} />)}
+      </div>
+    </div>
+  );
+}
+
+function DocumentGroupCard({ group, docCategories, selectedForMerge, onToggleSelect, onInspect, onSplit, onRetype }) {
+  const [splitAt, setSplitAt] = useState("");
+  const confidenceColor = group.confidence === "high" ? "#5A8266" : group.confidence === "medium" ? "#B8762E" : "#A8362B";
+  return (
+    <div style={{background:"#fff",border:`1px solid ${group.status==="needs_review"?"#E8B8B2":"#E3DDD0"}`,borderRadius:6,padding:"10px 12px",marginBottom:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <input type="checkbox" checked={selectedForMerge} onChange={()=>onToggleSelect(group.groupId)} title="Select for merge" style={{width:14,height:14,accentColor:"#1B2A4A"}} />
+        <span style={{fontFamily:"Inter",fontSize:12,fontWeight:600,color:"#1B2A4A"}}>Pages {group.pageRange[0]+1}–{group.pageRange[1]+1}</span>
+        <span style={{fontFamily:"Inter",fontSize:9.5,fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase",color:confidenceColor,border:`1px solid ${confidenceColor}`,borderRadius:10,padding:"1px 7px"}}>{group.confidence}</span>
+        {group.status==="needs_review" && <span style={{fontFamily:"Inter",fontSize:9.5,fontWeight:700,color:"#A8362B"}}>NEEDS REVIEW</span>}
+        <span style={{marginLeft:"auto",cursor:"pointer",fontSize:11,color:"#857F6E",display:"flex",alignItems:"center",gap:4}} onClick={()=>onInspect(group.sourceImageRefs)}>
+          <Icon.Eye size={12} /> Inspect
+        </span>
+      </div>
+      <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <select className="ir-input" style={{fontSize:11.5,padding:"4px 8px",width:"auto",maxWidth:260}} value={group.mappedDocCategory || ""} onChange={(e)=>onRetype(group.groupId, e.target.value)}>
+          <option value="">— Unmapped, select a document type —</option>
+          {docCategories.map((c) => <option key={c.key} value={c.key}>{c.title}</option>)}
+        </select>
+        <input type="number" placeholder="Split at page…" className="ir-input" style={{fontSize:11.5,padding:"4px 8px",width:110}} value={splitAt} onChange={(e)=>setSplitAt(e.target.value)} min={group.pageRange[0]+2} max={group.pageRange[1]+1} />
+        <button className="ir-btn-ghost" style={{fontSize:11,padding:"4px 9px"}} disabled={!splitAt} onClick={()=>{ onSplit(group.groupId, Number(splitAt)-1); setSplitAt(""); }}>Split</button>
+      </div>
+      {group.consistencyFlags && group.consistencyFlags.length > 0 && (
+        <div style={{marginTop:6,fontSize:10.5,fontFamily:"Inter",color:"#A8362B"}}>
+          {group.consistencyFlags.map((f, i) => <div key={i}>• {f.detail}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UnrecognizedPagesPanel({ pages, docCategories, groups, onAssignExisting, onAssignNew, onKeepUnrecognized, onInspect }) {
+  const [choice, setChoice] = useState({});
+  if (!pages.length) return null;
+  return (
+    <div style={{background:"#FBF8F1",border:"1px solid #E3DDD0",borderRadius:6,padding:"10px 12px",marginBottom:12}}>
+      <div style={{fontFamily:"Inter",fontWeight:600,fontSize:12,color:"#1B2A4A",marginBottom:6}}>Unrecognized pages ({pages.length})</div>
+      {pages.map((p) => {
+        const sel = choice[p.pageIndex] || "";
+        return (
+          <div key={p.pageIndex} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:"1px solid #EFEAE0"}}>
+            <span style={{fontFamily:"Inter",fontSize:11.5,color:"#3A3528",minWidth:60}}>Page {p.pageIndex+1}</span>
+            <span style={{fontSize:10.5,color:"#A6A595"}}>{p.reason==="classification_failed" ? "classification failed — retryable" : "not confidently classified"}</span>
+            <span style={{cursor:"pointer",fontSize:11,color:"#857F6E",display:"flex",alignItems:"center",gap:3}} onClick={()=>onInspect([p.sourceImageRef])}><Icon.Eye size={11} /> Inspect</span>
+            <select className="ir-input" style={{fontSize:11,padding:"3px 6px",width:"auto",marginLeft:"auto"}} value={sel} onChange={(e)=>setChoice((c)=>({...c,[p.pageIndex]:e.target.value}))}>
+              <option value="">Assign to…</option>
+              <optgroup label="Existing group">
+                {groups.map((g) => <option key={g.groupId} value={`group:${g.groupId}`}>Pages {g.pageRange[0]+1}–{g.pageRange[1]+1} ({g.mappedDocCategory ? docCategories.find(c=>c.key===g.mappedDocCategory)?.title : g.documentTypeId})</option>)}
+              </optgroup>
+              <optgroup label="New group as">
+                {docCategories.map((c) => <option key={c.key} value={`new:${c.key}`}>{c.title}</option>)}
+              </optgroup>
+            </select>
+            <button className="ir-btn-ghost" style={{fontSize:10.5,padding:"3px 8px"}} disabled={!sel} onClick={()=>{
+              if (sel.startsWith("group:")) onAssignExisting(p.pageIndex, sel.slice(6));
+              else if (sel.startsWith("new:")) onAssignNew(p.pageIndex, sel.slice(4));
+              setChoice((c)=>({...c,[p.pageIndex]:""}));
+            }}>Apply</button>
+            <button className="ir-btn-ghost" style={{fontSize:10.5,padding:"3px 8px"}} onClick={()=>onKeepUnrecognized(p.pageIndex)}>Keep unrecognized</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function IntakeReviewScreen({ session, docCategories, onSessionChange, onRefresh, onConfirm, confirming, confirmResults, onDismiss }) {
+  const [selectedForMerge, setSelectedForMerge] = useState([]);
+  const [inspecting, setInspecting] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState(null);
+
+  const runAction = async (fn) => {
+    setBusy(true); setActionError(null);
+    try { const updated = await fn(); onSessionChange(updated); }
+    catch (e) { setActionError(e.message || "Could not apply this change."); }
+    finally { setBusy(false); }
+  };
+
+  const toggleSelect = (groupId) => setSelectedForMerge((sel) => sel.includes(groupId) ? sel.filter((g) => g !== groupId) : sel.length < 2 ? [...sel, groupId] : sel);
+  const groups = session.document_groups || [];
+  const unrecognized = session.unrecognized_pages || [];
+  const allResolved = unrecognized.length === 0 && groups.every((g) => g.status !== "needs_review");
+
+  return (
+    <div style={{background:"#fff",border:"2px solid #1B2A4A",borderRadius:8,padding:14,marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div>
+          <div style={{fontFamily:"Inter",fontWeight:700,fontSize:12.5,color:"#1B2A4A",textTransform:"uppercase",letterSpacing:"0.03em"}}>Review Combined PDF Intake</div>
+          <div style={{fontSize:11,color:"#857F6E",marginTop:2}}>{session.page_count} pages · {groups.length} candidate document{groups.length===1?"":"s"} · {unrecognized.length} unrecognized page{unrecognized.length===1?"":"s"} — nothing below has been added to your case yet.</div>
+        </div>
+        <span style={{cursor:"pointer"}} onClick={onDismiss} title="Dismiss review"><Icon.X size={16} color="#857F6E" /></span>
+      </div>
+
+      {actionError && <div style={{marginBottom:8,padding:"7px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B"}}>{actionError}</div>}
+
+      {selectedForMerge.length === 2 && (
+        <div style={{marginBottom:8}}>
+          <button className="ir-btn-ghost" disabled={busy} onClick={()=>runAction(async()=>{ const r = await IntakeService.mergeGroups(session, selectedForMerge[0], selectedForMerge[1]); setSelectedForMerge([]); return r; })}>
+            Merge selected 2 groups
+          </button>
+        </div>
+      )}
+
+      {groups.map((g) => (
+        <DocumentGroupCard key={g.groupId} group={g} docCategories={docCategories}
+          selectedForMerge={selectedForMerge.includes(g.groupId)} onToggleSelect={toggleSelect}
+          onInspect={(paths)=>setInspecting(paths)}
+          onSplit={(groupId, splitAtPageIndex)=>runAction(()=>IntakeService.splitGroup(session, groupId, splitAtPageIndex))}
+          onRetype={(groupId, newKey)=>runAction(()=>IntakeService.retypeGroup(session, groupId, newKey))}
+        />
+      ))}
+
+      <UnrecognizedPagesPanel pages={unrecognized} docCategories={docCategories} groups={groups}
+        onInspect={(paths)=>setInspecting(paths)}
+        onAssignExisting={(pageIndex, groupId)=>runAction(()=>IntakeService.resolveUnrecognizedPage(session, pageIndex, { assignToGroupId: groupId }))}
+        onAssignNew={(pageIndex, key)=>runAction(()=>IntakeService.resolveUnrecognizedPage(session, pageIndex, { newDocumentTypeKey: key }))}
+        onKeepUnrecognized={(pageIndex)=>runAction(()=>IntakeService.resolveUnrecognizedPage(session, pageIndex, { keepUnrecognized: true }))}
+      />
+
+      <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
+        <button className="ir-btn-ghost" onClick={onRefresh} disabled={busy}><Icon.RefreshCw size={12} /> Refresh</button>
+        <button className="ir-btn-primary" disabled={busy || confirming || groups.length + unrecognized.length === 0} onClick={onConfirm}>
+          {confirming ? <Icon.Loader2 size={12} /> : <Icon.Check size={12} />}
+          {confirming ? "Confirming…" : "Confirm & extract into case"}
+        </button>
+        {!allResolved && <span style={{fontSize:10.5,color:"#B8762E"}}>Some groups still need review — you can confirm anyway, or resolve them first.</span>}
+      </div>
+
+      {inspecting && <PageInspector paths={inspecting} onClose={()=>setInspecting(null)} />}
     </div>
   );
 }
