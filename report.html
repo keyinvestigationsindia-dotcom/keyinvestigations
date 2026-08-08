@@ -698,7 +698,7 @@ function InvestigationReportTool() {
     setLinkedClaim(claim);
     setShowClaimPicker(false);
     const fd = claim.form_data || {};
-    const typeMap = { mact: "MACT Death Claim", motor_od: "TPPD Claim", tp: "TPPD Claim" };
+    const typeMap = { mact: "MACT Death Claim", motor_od: "TPPD Claim", tp: "TPPD Claim", health: "Health Claim" };
     setCaseData(c => ({
       ...c,
       claimNo: claim.claim_number || c.claimNo,
@@ -765,7 +765,7 @@ function InvestigationReportTool() {
           const trimmed = (val || "").toString().trim();
           if (!trimmed) continue;
           if (key === "claimType") {
-            if (["MACT Death Claim","MACT Injury Claim","TPPD Claim"].includes(trimmed)) updated.claimType = trimmed;
+            if (["MACT Death Claim","MACT Injury Claim","TPPD Claim","Health Claim"].includes(trimmed)) updated.claimType = trimmed;
           } else if (key in updated) { updated[key] = trimmed; }
         }
         return updated;
@@ -1152,7 +1152,7 @@ function InvestigationReportTool() {
           )}
           {openSections.case && (
             <div style={{background:"#fff",border:"1px solid #E3DDD0",borderRadius:6,padding:16,marginBottom:18,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <SelectField label="Claim type" value={caseData.claimType} onChange={(v)=>updateCase("claimType",v)} options={["MACT Death Claim","MACT Injury Claim","TPPD Claim"]} />
+              <SelectField label="Claim type" value={caseData.claimType} onChange={(v)=>updateCase("claimType",v)} options={["MACT Death Claim","MACT Injury Claim","TPPD Claim","Health Claim"]} />
               <Field label="Claim no." value={caseData.claimNo} onChange={(v)=>updateCase("claimNo",v)} />
               <Field label="Court / jurisdiction" value={caseData.court} onChange={(v)=>updateCase("court",v)} />
               <Field label="Claim amount" value={caseData.claimAmount} onChange={(v)=>updateCase("claimAmount",v)} />
