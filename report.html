@@ -932,17 +932,27 @@ function InvestigationReportTool() {
       : `<p style="font-size:10.5pt;color:#555;font-family:Calibri,Arial,sans-serif">No discrepancies flagged.</p>`;
 
     const today = new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"long",year:"numeric"});
+    // Root cause, found by isolated live testing (2 earlier attempts — first
+    // z-index:-1000 with position:fixed, then the same z-index with
+    // position:absolute — both still produced an identical ~3KB blank PDF,
+    // proven via a byte-for-byte-identical output size even with trivial
+    // test content, so the bug was never about report content at all):
+    // html2canvas fails to capture an element positioned off-screen via a
+    // negative offset OR hidden via a negative z-index — either one alone
+    // reproduced the blank capture. Confirmed directly: a fully normal,
+    // on-screen, unhidden element captured correctly (23KB for the same
+    // test content). The fix that keeps both properties true — element at
+    // normal, non-offset, non-negative-z-index position (so html2canvas
+    // captures it correctly) AND invisible to the user (so no visual flash)
+    // — is a zero-size, overflow:hidden wrapper: the actual capture target
+    // sits at ordinary coordinates *inside* the wrapper, which clips it to
+    // nothing on-screen without moving or occluding it from html2canvas's
+    // perspective. Verified live: 23261 bytes, matching the fully-visible
+    // baseline exactly.
+    const captureWrapper = document.createElement("div");
+    captureWrapper.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;overflow:hidden";
     const container = document.createElement("div");
-    // First attempt (z-index:-1000 while keeping position:fixed) did NOT fix
-    // it — re-tested live, still a ~3KB blank PDF. Real cause: html2canvas
-    // clones the DOM into its own rendering context to capture it, and
-    // position:fixed is resolved against the *viewport*, a concept that
-    // doesn't survive that clone reliably — so a fixed-position capture
-    // target can end up rendered nowhere in the clone regardless of its
-    // z-index or offset. position:absolute is resolved against the nearest
-    // positioned ancestor (here, the normal document flow / body) instead,
-    // which is a layout-flow concept the clone preserves correctly.
-    container.style.cssText = "position:absolute;left:0;top:0;width:210mm;background:#fff;padding:0;z-index:-1000;pointer-events:none";
+    container.style.cssText = "width:210mm;background:#fff;padding:0";
     container.innerHTML = `<div style="padding:18mm 16mm 20mm;font-family:Calibri,Arial,sans-serif;color:#1a1a1a;font-size:10.5pt;line-height:1.5">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
         <img src="images/logo.jpg" style="height:52px;border-radius:6px" crossorigin="anonymous" />
@@ -1006,7 +1016,8 @@ function InvestigationReportTool() {
       </div>
     </div>`;
 
-    document.body.appendChild(container);
+    captureWrapper.appendChild(container);
+    document.body.appendChild(captureWrapper);
     try {
       await html2pdf().set({
         margin: 0,
@@ -1016,7 +1027,7 @@ function InvestigationReportTool() {
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["avoid-all", "css", "legacy"] }
       }).from(container).save();
-    } finally { document.body.removeChild(container); }
+    } finally { document.body.removeChild(captureWrapper); }
   };
 
   // Diagram
