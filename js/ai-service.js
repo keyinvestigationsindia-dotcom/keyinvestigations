@@ -175,21 +175,27 @@ function _buildDocumentAutoFillPrompt(category, textBlock) {
   return `You are reading scanned insurance investigation document page(s) and/or Word document text (FIR / panchnama / postmortem / statement / vehicle document etc.) for the category "${category.title}". Multiple images may represent multiple pages of the same document, or multiple separate documents of the same category — read all of them together as one source, along with any Word document text provided below. The text may be in any major Indian language — Hindi, Gujarati, Marathi, Tamil, Telugu, Kannada, Malayalam, Bengali, Punjabi, Odia, Assamese, Urdu — or English, or a mix of these.
 
 Read the image(s) and text carefully, identify the language(s) used, and extract the following fields, translating everything into English:
-{ ${fieldList} }
+{ ${fieldList}, "_identitySignals": { "name": "person's name, if this document names one", "age": "age, if stated", "sex": "sex/gender, if stated", "uhid": "hospital UHID / patient ID, if stated", "caseNo": "case, CR, or MLC number, if stated", "opdNo": "OPD number, if stated", "hospitalIdentifier": "hospital/clinic name or registration identifier this document is associated with, if stated" }, "_documentCountEstimate": "your best count of how many DISTINCT source documents (not pages) this image set actually appears to contain, as a plain number string, e.g. \"1\"" }
 ${analysisHintBlock}
 
 Rules:
-- Return ONLY a JSON object with exactly these keys, nothing else (no markdown fences, no preamble).
+- Return ONLY a JSON object with exactly these keys (the fields above, plus "_identitySignals" and "_documentCountEstimate"), nothing else (no markdown fences, no preamble).
 - For each field, put the relevant extracted/translated information as a string.
 - If a field's information is not visible or not present anywhere, set it to an empty string "" — do NOT guess.
 - For narrative/long text fields, summarize in formal English, faithful to the source.
-- If images are unreadable or blank and no text is provided, return all fields as empty strings.${textBlock}`;
+- If images are unreadable or blank and no text is provided, return all fields as empty strings.
+- "_identitySignals" is separate from the fields above and applies regardless of category: fill in only the sub-fields this specific document actually states about a named person (most documents will leave most or all of these blank — that is expected and correct, not a failure). Follow the exact same no-guessing discipline as every other field, including using "Unclear / requires human verification" for a sub-field you can see is attempted but cannot reliably read, rather than your best guess.
+- "_documentCountEstimate" is usually "1" — a single document, however many pages it spans. Only give a higher number if you can genuinely see multiple different document types/formats/letterheads/layouts mixed together in this image set (e.g. a hospital discharge card followed by several separate pharmacy cash memos). Do not guess a number; if you are not sure, say "1".
+- CRITICAL — do not normalize illegible handwriting into a confident value. A name, diagnosis, number, or other key fact you are genuinely not confident you read correctly (as opposed to text that is merely in unfamiliar handwriting but plainly says one thing) must be written as "Unclear / requires human verification" — never your best guess at what it "probably" says, and never a plausible-sounding value you completed from partial strokes. This applies especially to medical diagnoses, proper names, and identification numbers, where a wrong confident guess is far more harmful than an honest "unclear." It is always acceptable, and preferred, to extract a shorter but fully-supported answer over a longer confident-sounding one you are not sure of.
+- If a field's value is contradicted elsewhere in the SAME image set (e.g. the images clearly reflect two different admission dates for what should be one stay), do not silently pick one — write both values plainly in the field, e.g. "13/8/16 per [X]; 18/8/16 per [Y]" rather than choosing.
+- If the provided images/pages appear to contain more than one distinct source document (e.g. a hospital record together with separate pharmacy bills, or two unrelated forms), do not blend them into a single invented narrative or attribute one document's details to another. Extract only what genuinely belongs to each field from whichever page(s) actually support it, and if you notice the set spans multiple distinct document types, say so briefly at the start of the "narrative" field (or the first long-text field, if there is no "narrative" field) rather than silently merging them.
+- For narrative/long text fields, where practical, briefly note which page or image the information came from (e.g. "(page 2)") so the value can be traced back to its source — do not do this for short single-fact fields (dates, names, numbers) where it would just add clutter.${textBlock}`;
 }
 
 function _buildHeaderAutoFillPrompt(textBlock) {
   return `You are reading insurance claim document(s) — could be a claim intimation letter, policy copy, RC, petition, or FIR — possibly in any major Indian language or English. Extract the following case-level fields, translating into English:
 {
-  "claimType": "one of exactly: 'MACT Death Claim', 'MACT Injury Claim', 'TPPD Claim'. Empty string if unclear.",
+  "claimType": "one of exactly: 'MACT Death Claim', 'MACT Injury Claim', 'TPPD Claim', 'Health Claim'. Empty string if unclear.",
   "claimNo": "MACT/claim number",
   "court": "court / jurisdiction",
   "claimAmount": "claim amount as stated",
@@ -205,7 +211,80 @@ Rules:
 - Keep values concise.${textBlock}`;
 }
 
-function _buildReportPrompt({ caseData, docsText, sectionKeys, extraNotes }) {
+// Health Claim reports must not carry motor/MACT assumptions (FIR, panchnama, DAR,
+// vehicle/DL/permit/fitness investigation) — those documents are not part of a health
+// claim and their "absence" is not evidence of anything. This block is used ONLY when
+// claimType === "Health Claim"; the MACT/TPPD observations structure and redFlags rules
+// below are unchanged from before this existed. Also carries the uncertainty-preservation
+// and identity-cross-check discipline requested for Health Claim reports specifically —
+// MACT/TPPD already have their own equivalent (the "particulars" category's age/DOB
+// cross-check, redFlags rule 1) and are deliberately left untouched.
+const _HEALTH_CLAIM_OBSERVATIONS_GUIDE = `   (a) Introduction & assignment: Who assigned, reference, purpose of investigation.
+   (b) Claim & policy verification: Policy number, period, sum insured, and whether the claim intimation/documents are complete — with exact values inline.
+   (c) Medical documentation review: Hospital(s)/clinic(s), admission and discharge dates, chronological course of treatment, as recorded across every medical document supplied — all inline.
+   (d) Patient/claimant identity: Before stating identity, check every source document section below that names the patient (name, age, sex, UHID, case/CR number, OPD number). If they agree, state the identity once, plainly. If they disagree — including if only one document differs from the rest — do NOT silently choose the value that seems more complete or official; state the exact conflicting values and which document each came from, and note that this requires human verification before the identity is treated as settled.
+   (e) Diagnosis, treatment & clinical findings: Diagnosis, treatment given, and clinical findings, drawn from hospital records, OPD records, and investigation reports, chronologically, with dates inline. If any source value was itself recorded as "Unclear / requires human verification" (or similar), state plainly that this specific detail could not be reliably read from the source — never restate it as a confirmed diagnosis or fact, and never substitute your own guess for it.
+   (f) Billing & pharmacy review: Medical bills and pharmacy/cash memo records supplied — hospital/pharmacy name, dates, amounts, and whether the billed items are consistent with the treatment documented elsewhere — all inline. If pharmacy/cash memo documents were supplied, they must be reflected here, not omitted.
+   (g) Document completeness: Which of the ordinarily-expected health-claim documents (policy copy, discharge summary, medical bills, identity proof, disability certificate if applicable) are present versus absent from what was supplied — note exactly what is missing, without implying anything about documents (like FIR or police records) that are not ordinarily part of a health claim in the first place.
+   (h) Discrepancies, uncertainties & red flags: Distinguish, in the narrative, between (i) a genuine discrepancy where two source documents state conflicting facts about the same event, and (ii) a value the extraction itself flagged as uncertain or illegible. A poorly-legible document or an "Unclear / requires human verification" value is NOT, by itself, evidence of claimant fraud or document fabrication — only a discrepancy the source documents themselves actually support should be raised as a concern.
+   The observations must read as one continuous, authoritative investigation narrative — not as disconnected paragraphs. Each paragraph must flow into the next with proper transitions. Do not discuss FIR, panchnama, DAR, spot inspection, vehicle registration/permit/fitness, driving licence, or police chargesheet — these are not part of a health claim and must not be treated as missing or suspicious.`;
+
+const _MOTOR_OBSERVATIONS_GUIDE = `   (a) Introduction & assignment: Who assigned, reference, purpose of investigation.
+   (b) Accident circumstances: Complete reconstruction from FIR, panchnama, DAR — with exact location, date/time, vehicles, sequence of events, all inline.
+   (c) Scene of accident / spot details: What was found at the spot, road conditions, evidence.
+   (d) Victim/deceased/injured particulars: Full identity with cross-document age/DOB comparison inline.
+   (e) Medical / cause of death / injuries: Hospital, admission, treatment, MLC findings, PM findings — all chronological with dates inline.
+   (f) Statements analysis: What each witness/insured/driver/claimant said — with critical analysis of who actually saw vs who arrived later, contradictions noted inline.
+   (g) Vehicle & document verification: IV and TP vehicle details, RC, permit, fitness, DL, policy — each verified with validity dates inline, any gaps or mismatches noted immediately.
+   (h) Police/legal proceedings: FIR, chargesheet, sections applied — all inline.
+   (i) Discrepancies & red flags: Woven into the narrative where they naturally arise, not as a separate list.
+   The observations must read as one continuous, authoritative investigation narrative — not as disconnected paragraphs. Each paragraph must flow into the next with proper transitions.`;
+
+const _HEALTH_CLAIM_REDFLAG_RULES = `(1) Diagnosis/treatment consistency — does the diagnosis recorded in one document match the treatment/medication actually given in another document for the same admission/episode; cite exact values from each source
+(2) Billing vs. treatment alignment — do the medical bills/pharmacy purchases correspond to the treatment actually documented (dates, hospital/pharmacy, nature of treatment)
+(3) Admission/discharge date consistency across ALL medical documents describing the same episode — cite the exact dates and which document each came from
+(4) Missing critical claim documents — note exactly what is absent (policy copy, discharge summary, bills, identity proof)
+(5) Identity consistency — name/age/sex/ID numbers, across every document that states them; do NOT raise this based on a single field the extraction itself marked uncertain — only when two or more clearly-stated source values genuinely disagree
+(6) Treatment timeline gaps — an unexplained gap between the recorded illness/injury onset and first medical attention, only where the source dates actually support this
+(7) Cost reasonableness — only if the source documents themselves give a basis for comparison (e.g. differing amounts for the same described item across bills); never invent an external benchmark
+Empty array ONLY if genuinely nothing found. Never include an item here whose only basis is a document being hard to read, a translation choice, or a value already marked uncertain in the source data — that is an extraction-quality note, not a claimant/document red flag.`;
+
+const _MOTOR_REDFLAG_RULES = `(1) Age/DOB mismatches across ANY documents — cite exact values from each source
+(2) Vehicle number mismatches or formatting differences across documents
+(3) Income discrepancies between petition, statement, and proof
+(4) Missing critical documents — note exactly what is absent
+(5) FIR delay — calculate exact days between accident and FIR, note if explanation given
+(6) Conflicting statements — who contradicts whom, on what specific point
+(7) Pending/missing chargesheet
+(8) Policy validity gaps — check if accident date falls within policy period
+(9) DL validity/class mismatch — check authorization vs vehicle driven
+(10) Permit/fitness expiry — check if valid on date of accident
+(11) Witness credibility — anyone who claims to be eyewitness but description suggests arrived later
+(12) Medical timeline gaps — delay between accident and hospital admission
+Empty array ONLY if genuinely nothing found.`;
+
+function _buildReportPrompt({ caseData, docsText, sectionKeys, extraNotes, identityConflicts }) {
+  const isHealthClaim = caseData.claimType === "Health Claim";
+  const observationsGuide = isHealthClaim ? _HEALTH_CLAIM_OBSERVATIONS_GUIDE : _MOTOR_OBSERVATIONS_GUIDE;
+  const redFlagRules = isHealthClaim ? _HEALTH_CLAIM_REDFLAG_RULES : _MOTOR_REDFLAG_RULES;
+  const factPreservationNote = isHealthClaim ? `
+
+HEALTH CLAIM — ADDITIONAL FACT-HANDLING RULES:
+When writing this report, distinguish four kinds of information at all times:
+(A) A source-supported fact — state it plainly.
+(B) A source-supported but uncertain value (e.g. a field the source data marks "Unclear / requires human verification") — state plainly that this specific detail could not be reliably read from the source; do NOT present it as a confirmed diagnosis or fact, and do NOT substitute your own guess for it.
+(C) A genuine discrepancy between two source documents describing what should be the same fact (e.g. two different admission dates for one stay) — state both values and which document each came from, and note it requires human review; do NOT silently pick one, and do NOT treat the discrepancy by itself as evidence of fraud.
+(D) Information the supplied documents simply do not contain — state that it is not available; never fabricate a plausible-sounding substitute.` : "";
+  // Identity conflicts are computed deterministically by the caller (report.html's
+  // detectIdentityConflicts, comparing each category's own _identitySignals) BEFORE
+  // this prompt is built — the model is never asked to notice these itself, only to
+  // transcribe an already-verified list faithfully. Empty when no conflict exists, or
+  // for non-Health-Claim reports (identityConflicts is only ever computed for Health
+  // Claim in report.html today).
+  const identityConflictsBlock = (isHealthClaim && Array.isArray(identityConflicts) && identityConflicts.length > 0) ? `
+
+IDENTITY CONFLICTS DETECTED BY THE SYSTEM (not for you to find — these were already compared field-by-field across the source documents before you received this prompt; you must report every one of them in the "Patient/claimant identity" part of the observations, exactly as listed, and must NOT silently resolve any of them to a single value):
+${identityConflicts.map((c) => `- ${c.field}: ${c.values.map((v) => `"${v.value}" (per ${v.sources.join(", ")})`).join(" vs. ")}`).join("\n")}` : "";
   return `You are a senior insurance investigation report writer with 20+ years of MACT (Motor Accident Claims Tribunal), insurance fraud investigation, and legal-expert experience in India. You write exactly like a seasoned field investigator reporting to an insurance company — formal, authoritative, dense with inline facts, third-person voice throughout.
 
 WRITING STYLE (match this precisely):
@@ -222,23 +301,14 @@ ABSOLUTE FACT PRESERVATION RULES:
 - If a date is "15/03/2024", write "15/03/2024" — never "March 2024" or "15th March 2024".
 - If a vehicle number is "GJ-02-AX-1234", write exactly that — never reformat or abbreviate.
 - If income is stated as "Rs. 15,000/- per month", write exactly that — never round to "approximately Rs. 15,000/-".
-- You may ONLY improve grammar, sentence flow, readability, and professional language. Zero factual drift.
+- You may ONLY improve grammar, sentence flow, readability, and professional language. Zero factual drift.${factPreservationNote}${identityConflictsBlock}
 
 REPORT STRUCTURE:
 1. "sections" — Each document category gets a DETAILED factual brief (3-6 sentences), written in formal investigative language with ALL factual details inline. Not a summary — a comprehensive factual extract written like a professional investigator's notes.
-2. "findings" — A structured, numbered list of KEY established facts drawn from ALL documents. Each finding must be a complete, self-contained factual statement with all identifiers inline. Group logically: (a) Accident facts (b) Victim/injured details (c) Vehicle & document verification (d) Statement analysis (e) Medical/cause findings (f) Discrepancies noted.
+2. "findings" — A structured, numbered list of KEY established facts drawn from ALL documents. Each finding must be a complete, self-contained factual statement with all identifiers inline. Group logically: ${isHealthClaim ? "(a) Claim/policy facts (b) Patient identity details (c) Diagnosis & treatment findings (d) Billing & pharmacy facts (e) Document completeness (f) Discrepancies noted" : "(a) Accident facts (b) Victim/injured details (c) Vehicle & document verification (d) Statement analysis (e) Medical/cause findings (f) Discrepancies noted"}.
 3. "observations" — This is the MAIN body of the report. Write a DETAILED, CHRONOLOGICAL narrative (minimum 800 words for a complete case) structured as follows:
-   (a) Introduction & assignment: Who assigned, reference, purpose of investigation.
-   (b) Accident circumstances: Complete reconstruction from FIR, panchnama, DAR — with exact location, date/time, vehicles, sequence of events, all inline.
-   (c) Scene of accident / spot details: What was found at the spot, road conditions, evidence.
-   (d) Victim/deceased/injured particulars: Full identity with cross-document age/DOB comparison inline.
-   (e) Medical / cause of death / injuries: Hospital, admission, treatment, MLC findings, PM findings — all chronological with dates inline.
-   (f) Statements analysis: What each witness/insured/driver/claimant said — with critical analysis of who actually saw vs who arrived later, contradictions noted inline.
-   (g) Vehicle & document verification: IV and TP vehicle details, RC, permit, fitness, DL, policy — each verified with validity dates inline, any gaps or mismatches noted immediately.
-   (h) Police/legal proceedings: FIR, chargesheet, sections applied — all inline.
-   (i) Discrepancies & red flags: Woven into the narrative where they naturally arise, not as a separate list.
-   The observations must read as one continuous, authoritative investigation narrative — not as disconnected paragraphs. Each paragraph must flow into the next with proper transitions.
-4. "conclusion" — A comprehensive closing assessment (4-8 sentences) with clear determination on: (a) whether the accident is genuine/staged (b) liability assessment (c) document compliance status (d) any recommendations for the insurer.
+${observationsGuide}
+4. "conclusion" — A comprehensive closing assessment (4-8 sentences) with clear determination on: ${isHealthClaim ? "(a) whether the claim documentation is consistent and complete (b) document compliance status (c) any patient-identity or cross-document discrepancies requiring human verification before the claim is decided (d) any recommendations for the insurer. Do not characterise the claim as an accident claim, and do not conclude anything about whether an accident occurred — that is outside the scope of a health claim's medical documentation." : "(a) whether the accident is genuine/staged (b) liability assessment (c) document compliance status (d) any recommendations for the insurer."}
 
 Produce a JSON object (nothing else) with this shape:
 {
@@ -249,32 +319,20 @@ Produce a JSON object (nothing else) with this shape:
     {"flag": "title", "detail": "detailed explanation with exact mismatched values cited", "severity": "high|medium|low"}
   ],
   "findings": "numbered list (\\n between items, prefix with '1. ', '2. ' etc.), grouped by category",
-  "observations": "DETAILED chronological narrative (minimum 800 words), formal investigative language, every fact inline, sequence: accident → victim → medical → statements → documents → discrepancies",
+  "observations": "${isHealthClaim ? "DETAILED chronological narrative (minimum 800 words), formal investigative language, every fact inline, sequence: claim/policy → patient identity → diagnosis/treatment → billing/pharmacy → document completeness → discrepancies" : "DETAILED chronological narrative (minimum 800 words), formal investigative language, every fact inline, sequence: accident → victim → medical → statements → documents → discrepancies"}",
   "conclusion": "comprehensive 4-8 sentence closing assessment with determination and recommendations"
 }
 
 Rules for redFlags (be thorough — a senior investigator catches everything):
-(1) Age/DOB mismatches across ANY documents — cite exact values from each source
-(2) Vehicle number mismatches or formatting differences across documents
-(3) Income discrepancies between petition, statement, and proof
-(4) Missing critical documents — note exactly what is absent
-(5) FIR delay — calculate exact days between accident and FIR, note if explanation given
-(6) Conflicting statements — who contradicts whom, on what specific point
-(7) Pending/missing chargesheet
-(8) Policy validity gaps — check if accident date falls within policy period
-(9) DL validity/class mismatch — check authorization vs vehicle driven
-(10) Permit/fitness expiry — check if valid on date of accident
-(11) Witness credibility — anyone who claims to be eyewitness but description suggests arrived later
-(12) Medical timeline gaps — delay between accident and hospital admission
-Empty array ONLY if genuinely nothing found.
+${redFlagRules}
 
 CASE HEADER:
 Claim Type: ${caseData.claimType}
 Claim No: ${caseData.claimNo}
 Court: ${caseData.court}
-Claim Amount: ${caseData.claimAmount}
+Claim Amount: ${caseData.claimAmount}${isHealthClaim ? "" : `
 Date of Accident: ${caseData.doa}
-Insured Vehicle: ${caseData.ivVehicle}
+Insured Vehicle: ${caseData.ivVehicle}`}
 Insured: ${caseData.insured}
 Policy No: ${caseData.policyNo} (${caseData.policyPeriod})
 
@@ -366,7 +424,7 @@ async function _fetchModuleRegistry() {
 function _buildTimelineIntelligencePrompt(docsText) {
   return `You are reconstructing a chronological timeline for an Indian motor insurance (MACT) investigation, purely for internal cross-checking — you are not a legal or medical authority.
 
-From the case document text below, extract every explicitly dated event (accident, FIR lodging, panchnama, admission/discharge, postmortem, death, chargesheet, etc.) and:
+From the case document text below, extract every explicitly dated event — this may include an accident, FIR lodging, panchnama, admission/discharge, OPD visit, investigation/test, postmortem, death, chargesheet, pharmacy/medicine purchase, or any other dated event actually present in the text — and:
 1. List them in chronological order.
 2. Flag any sequence that is impossible or inconsistent (e.g. a document dated before the event it describes, a death certificate dated before the postmortem, an FIR lodged before the stated accident time) — only flag what the text actually supports, do not speculate.
 3. If a document's date is missing or unclear, say so rather than guessing.
@@ -931,13 +989,18 @@ function _notImplemented(featureName) {
 // ── Public interface ──
 const AIService = {
   // Reads uploaded documents for one report section and returns extracted field values.
+  // Return shape is additive: the named category fields and "_identitySignals" as
+  // documented in _buildDocumentAutoFillPrompt, plus "_pageCount" (how many
+  // images/pages this call actually processed) — a deterministic fact the caller
+  // can use to warn on a likely multi-document bundle, not something the model states.
   async autoFillDocument({ category, files }, { onStatus } = {}) {
     const { images, textBlock } = await _filesToPayload(files);
     const prompt = _buildDocumentAutoFillPrompt(category, textBlock);
     const response = await _runQueued(() => _request("/ki/vision", {
       images, prompt, max_tokens: 6144, model_tier: "fast",
     }, { onStatus }), onStatus);
-    return _parseJsonContent(response, { maxTokensMessage: "Content too long — try uploading fewer pages at once." });
+    const parsed = await _parseJsonContent(response, { maxTokensMessage: "Content too long — try uploading fewer pages at once." });
+    return { ...parsed, _pageCount: images.length };
   },
 
   // Reads uploaded documents and returns extracted case header fields.
@@ -952,8 +1015,10 @@ const AIService = {
 
   // Drafts the full investigation report from case data + included document sections.
   // Uses the "best" model tier (Opus) — this is a legal/court document, quality over cost.
-  async generateReport({ caseData, docsText, sectionKeys, extraNotes }, { onStatus } = {}) {
-    const prompt = _buildReportPrompt({ caseData, docsText, sectionKeys, extraNotes });
+  // identityConflicts (optional) is a pre-computed, deterministic list from the caller
+  // (report.html's detectIdentityConflicts) — see _buildReportPrompt for how it's used.
+  async generateReport({ caseData, docsText, sectionKeys, extraNotes, identityConflicts }, { onStatus } = {}) {
+    const prompt = _buildReportPrompt({ caseData, docsText, sectionKeys, extraNotes, identityConflicts });
     const response = await _runQueued(() => _request("/ki/completion", {
       prompt, max_tokens: 16000, model_tier: "best",
     }, { onStatus }), onStatus);

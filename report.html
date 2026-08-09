@@ -231,7 +231,7 @@ const DOC_CATEGORIES = [
     {key:"followUpCosts",label:"Follow-up treatment / physiotherapy costs"},
     {key:"narrative",label:"Other medical expense details",area:true},
     {key:"remarks",label:"Remarks (inflated bills, duplicate bills etc.)",area:true},
-  ]},
+  ], analysisHint:`This category often includes pharmacy/chemist cash memos as well as hospital bills — these are usually small printed or handwritten slips (e.g. "Cash Memo / Drug Register") with their own memo/bill number, date, patient name, a list of medicines with quantity, batch and expiry, and an amount, and may look nothing like a hospital invoice. Do not skip them because they don't resemble a hospital bill. In "billBreakdown", list each distinct bill/memo you can identify as its own line — pharmacy or hospital name, date, and amount at minimum, plus medicine names where legible. If a memo's date, amount, or a specific medicine name is genuinely illegible rather than merely handwritten-but-readable, write "Unclear / requires human verification" for that specific detail rather than guessing a plausible-looking value — do not invent a medicine name from partial strokes.` },
   { key:"disabilityCert", title:"Disability Certificate (Injury cases)", fields:[
     {key:"certificateNo",label:"Certificate no. & date of issue"},
     {key:"issuedBy",label:"Issued by (medical board / hospital)"},
@@ -406,6 +406,65 @@ const buildDocsText = (docCategories) => DOC_CATEGORIES
   .filter(Boolean)
   .join("\n\n");
 
+// Deterministic identity cross-check across whatever _identitySignals each
+// auto-filled category captured (see AIService.autoFillDocument / handleAutoFill).
+// Pure function, no AI call — this is the code-level check the Health Claim accuracy
+// fix's prompt-only version was missing: a field only counts as conflicting when two
+// or more DISTINCT non-empty, non-uncertain values are present across included
+// categories; a category that simply never mentioned identity is never a conflict.
+const IDENTITY_SIGNAL_FIELDS = [
+  { key: "name", label: "Patient name" },
+  { key: "age", label: "Age" },
+  { key: "sex", label: "Sex" },
+  { key: "uhid", label: "UHID" },
+  { key: "caseNo", label: "Case/CR number" },
+  { key: "opdNo", label: "OPD number" },
+  { key: "hospitalIdentifier", label: "Hospital identifier" },
+];
+const detectIdentityConflicts = (docCategories) => {
+  const conflicts = [];
+  for (const { key: fieldKey, label } of IDENTITY_SIGNAL_FIELDS) {
+    const seen = new Map(); // normalized value -> { value, sources: [category title, ...] }
+    for (const cat of DOC_CATEGORIES) {
+      const entry = docCategories[cat.key];
+      if (!entry?.include) continue;
+      const raw = (entry.identitySignals?.[fieldKey] || "").toString().trim();
+      if (!raw || raw === "Unclear / requires human verification") continue;
+      const norm = raw.toLowerCase();
+      if (!seen.has(norm)) seen.set(norm, { value: raw, sources: [] });
+      seen.get(norm).sources.push(cat.title);
+    }
+    if (seen.size > 1) conflicts.push({ field: label, values: Array.from(seen.values()) });
+  }
+  return conflicts;
+};
+
+// A single-category upload rendering more pages than this is a likely multi-document
+// bundle (the DEMO0001 case: 15 pages, 5 distinct document types, one category) —
+// deterministic, based on AIService.autoFillDocument's own _pageCount, not a prompt
+// hope. Surfaced as a UI warning only; does not block or alter extraction.
+const MULTI_DOC_WARNING_THRESHOLD = 6;
+
+// Page count alone is not a safe signal — a 3-page upload can just as easily be 3
+// separate one-page pharmacy memos as one 3-page document. Combines three independent
+// signals so a low page count is never treated as automatically safe:
+//   1. fileCount  — investigator selected more than one separate file for one category
+//                   (fully deterministic, no AI involved: the file picker's own count).
+//   2. pageCount  — AIService.autoFillDocument's own _pageCount exceeds the threshold
+//                   above (deterministic, but blind to content — a genuinely long
+//                   single document would also trip this).
+//   3. docCountEstimate — the model's own reported count of distinct document types it
+//                   saw in the image set (_documentCountEstimate) — the only signal of
+//                   the three that can catch a few distinct short documents bundled
+//                   into a low page count.
+// Pure function — no side effects, independently testable.
+const shouldWarnMultiDocUpload = ({ fileCount, pageCount, docCountEstimate }, threshold = MULTI_DOC_WARNING_THRESHOLD) => {
+  if (typeof fileCount === "number" && fileCount > 1) return true;
+  if (typeof pageCount === "number" && pageCount > threshold) return true;
+  if (typeof docCountEstimate === "number" && Number.isFinite(docCountEstimate) && docCountEstimate > 1) return true;
+  return false;
+};
+
 // ── Draft Persistence (Supabase report_drafts — synced across devices) ──
 const CURRENT_DRAFT_KEY = "ki_current_draft_id"; // local pointer only; draft content lives in Supabase
 const genDraftId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -513,6 +572,7 @@ function InvestigationReportTool() {
 
   const [autoFilling, setAutoFilling] = useState({});
   const [autoFillError, setAutoFillError] = useState({});
+  const [multiDocWarning, setMultiDocWarning] = useState({});
   const [autoUpdating, setAutoUpdating] = useState(false);
   const [userEditedReport, setUserEditedReport] = useState(false);
   const [queueStatus, setQueueStatus] = useState(null);
@@ -762,10 +822,23 @@ function InvestigationReportTool() {
     if (!files || files.length === 0) return;
     setAutoFilling((s) => ({ ...s, [cat.key]: true }));
     setAutoFillError((s) => ({ ...s, [cat.key]: null }));
+    const fileCount = files.length;
     try {
       const parsed = await AIService.autoFillDocument({ category: cat, files }, { onStatus: setQueueStatus });
-      setDocCategories((d) => ({...d,[cat.key]:{include:true,values:mergeFieldValues(d[cat.key].values,parsed)}}));
+      // _identitySignals, _pageCount and _documentCountEstimate are metadata, not
+      // report fields — strip them before merging so mergeFieldValues (plain string
+      // field merge) never sees them.
+      const { _identitySignals, _pageCount, _documentCountEstimate, ...fieldValues } = parsed || {};
+      setDocCategories((d) => ({...d,[cat.key]:{
+        include: true,
+        values: mergeFieldValues(d[cat.key].values, fieldValues),
+        identitySignals: (_identitySignals && typeof _identitySignals === "object") ? _identitySignals : d[cat.key].identitySignals,
+      }}));
       setExpandedDocs((e) => ({ ...e, [cat.key]: true }));
+      const docCountEstimate = parseInt(_documentCountEstimate, 10);
+      const pageCount = typeof _pageCount === "number" ? _pageCount : null;
+      const signals = { fileCount, pageCount, docCountEstimate: Number.isFinite(docCountEstimate) ? docCountEstimate : null };
+      setMultiDocWarning((w) => ({ ...w, [cat.key]: shouldWarnMultiDocUpload(signals) ? signals : null }));
     } catch (e) {
       setAutoFillError((s) => ({ ...s, [cat.key]: e.message || "Could not read document." }));
     } finally { setAutoFilling((s) => ({ ...s, [cat.key]: false })); }
@@ -800,14 +873,17 @@ function InvestigationReportTool() {
     try {
       const docsText = buildDocsText(docCategories);
       const sectionKeys = DOC_CATEGORIES.filter((cat) => docCategories[cat.key]?.include).map((c) => c.key).join(", ");
+      const identityConflicts = detectIdentityConflicts(docCategories);
 
-      const result = await AIService.generateReport({ caseData, docsText, sectionKeys, extraNotes }, { onStatus: setQueueStatus });
+      const result = await AIService.generateReport({ caseData, docsText, sectionKeys, extraNotes, identityConflicts }, { onStatus: setQueueStatus });
       setReport(result);
       setUserEditedReport(false);
     } catch (e) {
       if (!silent) setError(e.message || "Could not generate report.");
     } finally { setGenerating(false); setAutoUpdating(false); }
   };
+
+  const identityConflicts = detectIdentityConflicts(docCategories);
 
   const inputSnapshot = JSON.stringify({ caseData, docCategories, extraNotes });
   useEffect(() => {
@@ -1251,6 +1327,14 @@ function InvestigationReportTool() {
                       {isOpen ? <Icon.ChevronDown size={14} color="#A6A595" /> : <Icon.ChevronRight size={14} color="#A6A595" />}
                     </div>
                     {autoFillError[cat.key] && <div style={{margin:"0 14px 10px",padding:"8px 10px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:4,fontSize:11.5,color:"#A8362B",lineHeight:1.5}}>{autoFillError[cat.key]}</div>}
+                    {multiDocWarning[cat.key] && <div style={{margin:"0 14px 10px",padding:"8px 10px",background:"#FBF3E6",border:"1px solid #E8CFA0",borderRadius:4,fontSize:11.5,color:"#8A5A1E",lineHeight:1.5}}>
+                      {multiDocWarning[cat.key].fileCount > 1
+                        ? `You selected ${multiDocWarning[cat.key].fileCount} separate files for this one category`
+                        : multiDocWarning[cat.key].docCountEstimate > 1
+                          ? `This upload appears to contain ${multiDocWarning[cat.key].docCountEstimate} different documents`
+                          : `This upload had ${multiDocWarning[cat.key].pageCount} pages in one go`}
+                      {` — if it's actually a bundle of different documents (e.g. a discharge card plus separate pharmacy bills), auto-fill may blend them together. Consider "Upload Combined PDF" above instead, which splits and classifies pages before extraction.`}
+                    </div>}
                     {isOpen && (
                       <div style={{padding:"4px 14px 14px",display:"grid",gap:10}}>
                         {cat.fields.map((f) => {
@@ -1284,6 +1368,17 @@ function InvestigationReportTool() {
 
           <div className="ir-label">Investigator field notes (optional)</div>
           <textarea className="ir-textarea" style={{minHeight:90,marginBottom:18}} placeholder="Anything from your own field visits not captured above…" value={extraNotes} onChange={(e)=>setExtraNotes(e.target.value)} />
+
+          {identityConflicts.length > 0 && (
+            <div style={{margin:"0 0 14px",padding:"10px 12px",background:"#FBEAE8",border:"1px solid #E8B8B2",borderRadius:6,fontSize:11.5,color:"#A8362B",lineHeight:1.5}}>
+              <div style={{fontWeight:700,marginBottom:4}}>Identity conflict{identityConflicts.length>1?"s":""} across uploaded documents — verify before generating</div>
+              {identityConflicts.map((c) => (
+                <div key={c.field} style={{marginTop:2}}>
+                  <b>{c.field}:</b> {c.values.map((v,i) => <span key={i}>{i>0?" vs. ":""}"{v.value}" (per {v.sources.join(", ")})</span>)}
+                </div>
+              ))}
+            </div>
+          )}
 
           <button className="ir-btn-primary" onClick={()=>generateReport()} disabled={generating} style={{width:"100%",justifyContent:"center"}}>
             {generating ? <Icon.Loader2 size={16} /> : <Icon.FileText size={16} />}
